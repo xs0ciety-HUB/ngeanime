@@ -1,11 +1,13 @@
-// Jikan v4 client: timeout, abort, TTL cache, in-flight dedupe, serial queue (~2.5 req/s), no auto-retry on 429.
+// Klien Jikan v4: timeout, cache TTL, dedupe request sama, antrean serial (±2.5 req/s).
+// Tidak auto-retry saat 429 supaya rate limit tidak makin parah.
 const BASE = 'https://api.jikan.moe/v4';
 const TTL = 5 * 60 * 1000;
 const GAP = 400;
 const TIMEOUT = 10000;
+const MAX_CACHE = 200;
 
 export class ApiError extends Error {
-  constructor(kind, message) { super(message); this.kind = kind; } // network | rate | server | data | notfound | aborted
+  constructor(kind, message) { super(message); this.kind = kind; }
 }
 
 const cache = new Map();
@@ -13,12 +15,10 @@ const inflight = new Map();
 let chain = Promise.resolve();
 let lastStart = 0;
 
-function queued(task, signal) {
+function enqueue(task) {
   const run = chain.then(async () => {
-    if (signal?.aborted) throw new ApiError('aborted', 'aborted');
     const wait = lastStart + GAP - Date.now();
     if (wait > 0) await new Promise(r => setTimeout(r, wait));
-    if (signal?.aborted) throw new ApiError('aborted', 'aborted');
     lastStart = Date.now();
     return task();
   });
@@ -26,10 +26,8 @@ function queued(task, signal) {
   return run;
 }
 
-async function doFetch(url, signal) {
+async function doFetch(url) {
   const ctl = new AbortController();
-  const onAbort = () => ctl.abort();
-  signal?.addEventListener('abort', onAbort, { once: true });
   const timer = setTimeout(() => ctl.abort(), TIMEOUT);
   try {
     const res = await fetch(url, { signal: ctl.signal, headers: { Accept: 'application/json' } });
@@ -43,12 +41,24 @@ async function doFetch(url, signal) {
     return json;
   } catch (e) {
     if (e instanceof ApiError) throw e;
-    if (signal?.aborted) throw new ApiError('aborted', 'aborted');
     throw new ApiError('network', e?.message || 'Network error');
   } finally {
     clearTimeout(timer);
-    signal?.removeEventListener('abort', onAbort);
   }
+}
+
+// Menunggu request bersama, tapi berhenti kalau pemanggil ini dibatalkan.
+// Pembatalan pemanggil TIDAK membatalkan fetch-nya, jadi pemanggil lain tidak ikut gagal.
+function awaitFor(promise, signal) {
+  if (!signal) return promise;
+  if (signal.aborted) return Promise.reject(new ApiError('aborted', 'aborted'));
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(new ApiError('aborted', 'aborted'));
+    signal.addEventListener('abort', onAbort, { once: true });
+    promise.then(
+      v => { signal.removeEventListener('abort', onAbort); resolve(v); },
+      e => { signal.removeEventListener('abort', onAbort); reject(e); });
+  });
 }
 
 export function get(path, params = {}, signal) {
@@ -56,14 +66,23 @@ export function get(path, params = {}, signal) {
   for (const [k, v] of Object.entries(params)) if (v !== '' && v != null) qs.set(k, String(v));
   const str = qs.toString();
   const url = `${BASE}${path}${str ? `?${str}` : ''}`;
+
   const hit = cache.get(url);
   if (hit && hit.exp > Date.now()) return Promise.resolve(hit.json);
-  if (inflight.has(url)) return inflight.get(url);
-  const p = queued(() => doFetch(url, signal), signal)
-    .then(json => { cache.set(url, { json, exp: Date.now() + TTL }); return json; })
-    .finally(() => inflight.delete(url));
-  inflight.set(url, p);
-  return p;
+
+  let p = inflight.get(url);
+  if (!p) {
+    p = enqueue(() => doFetch(url))
+      .then(json => {
+        cache.delete(url);
+        cache.set(url, { json, exp: Date.now() + TTL });
+        if (cache.size > MAX_CACHE) cache.delete(cache.keys().next().value);
+        return json;
+      })
+      .finally(() => inflight.delete(url));
+    inflight.set(url, p);
+  }
+  return awaitFor(p, signal);
 }
 
 const arr = x => (Array.isArray(x) ? x : []);
