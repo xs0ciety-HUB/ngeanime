@@ -72,4 +72,5 @@ export const seasonNow = signal => get('/seasons/now', { limit: 12, sfw: true },
 export const searchAnime = (p, signal) => get('/anime', { limit: 24, sfw: true, ...p }, signal);
 export const animeFull = (id, signal) => get(`/anime/${id}/full`, {}, signal);
 export const recommendations = async (id, signal) => arr((await get(`/anime/${id}/recommendations`, {}, signal)).data);
+export const streaming = async (id, signal) => arr((await get(`/anime/${id}/streaming`, {}, signal)).data);
 export const genres = async signal => arr((await get('/genres/anime', {}, signal)).data);

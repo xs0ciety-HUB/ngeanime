@@ -213,6 +213,14 @@ route('/anime/(\\d{1,7})', async ({ params, signal }) => {
           h('h2', {}, 'Sinopsis'),
           h('p', { class: 'syn' }, a.synopsis || 'Sinopsis belum tersedia.'))));
       document.title = `${it.title} — Kakemono`;
+      api.streaming(id, signal).then(list => {
+        const links = list.filter(s => typeof s?.url === 'string' && typeof s?.name === 'string');
+        if (!links.length) return;
+        body.querySelector('.detail > div:last-child').append(
+          h('h2', {}, 'Nonton legal di'),
+          h('ul', { class: 'tags streaming' }, links.map(s =>
+            h('li', {}, h('a', { href: s.url, target: '_blank', rel: 'noopener noreferrer' }, s.name)))));
+      }).catch(e => { if (e.kind !== 'aborted') console.warn('Streaming unavailable', e.kind); });
       const recs = await section('Rekomendasi', async s => ({ data: (await api.recommendations(id, s)).map(r => r.entry) }), signal, 12);
       body.append(recs.wrap);
       await recs.run();
