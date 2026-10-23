@@ -1,0 +1,9 @@
+{
+  "name": "kakemono-anime",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Anime discovery site (Jikan API v4), static + vanilla JS",
+  "scripts": { "dev": "npx --yes serve public -s -l 3000", "check": "node scripts/check.mjs" },
+  "engines": { "node": ">=18" }
+}
