@@ -1,36 +1,38 @@
 const routes = [];
-let ctl = null;
-let fallback = () => {};
+let currentCleanup = null;
 
-export const route = (pattern, handler) => routes.push({ re: new RegExp(`^(?:${pattern})$`), handler });
-export const onNotFound = fn => { fallback = fn; };
-
-export function resolve() {
-  ctl?.abort();
-  ctl = new AbortController();
-  const { signal } = ctl;
-  const url = new URL(location.href);
-  for (const r of routes) {
-    const m = url.pathname.match(r.re);
-    if (m) return r.handler({ params: m.slice(1), query: url.searchParams, signal });
-  }
-  return fallback({ signal });
+export function route(pattern, handler) {
+  routes.push({ re: new RegExp(`^(?:${pattern})$`), handler });
 }
 
-export function navigate(path, { replace = false } = {}) {
-  history[replace ? 'replaceState' : 'pushState'](null, '', path);
-  return resolve();
+export function navigate(path) {
+  history.pushState(null, '', path);
+  resolve();
+}
+
+export function resolve() {
+  if (currentCleanup) { currentCleanup(); currentCleanup = null; }
+  const path = location.pathname;
+  for (const r of routes) {
+    const m = path.match(r.re);
+    if (m) {
+      const result = r.handler({ params: m.slice(1) });
+      if (typeof result === 'function') currentCleanup = result;
+      return;
+    }
+  }
+  document.getElementById('app').innerHTML = '<div class="state"><h1>404</h1><p>Halaman tidak ditemukan.</p><a href="/" data-link class="btn btn-primary">Kembali</a></div>';
 }
 
 export function start() {
   document.addEventListener('click', e => {
-    const a = e.target.closest?.('a[data-link]');
-    if (!a || e.defaultPrevented || e.button || e.metaKey || e.ctrlKey || e.shiftKey) return;
-    const u = new URL(a.href);
-    if (u.origin !== location.origin) return;
+    const a = e.target.closest('a[data-link]');
+    if (!a || e.defaultPrevented || e.metaKey || e.ctrlKey) return;
+    const url = new URL(a.href);
+    if (url.origin !== location.origin) return;
     e.preventDefault();
-    navigate(u.pathname + u.search);
+    navigate(url.pathname + url.search);
   });
-  addEventListener('popstate', resolve);
+  window.addEventListener('popstate', resolve);
   resolve();
 }
