@@ -10,7 +10,7 @@
  * Cache  : successful responses only (CDN s-maxage); errors are never cached.
  */
 
-const { fetchWithFallback } = require('../_upstream.js');
+const { fetchWithFallback, source } = require('../_upstream.js');
 
 // route -> number of :id segments required after it
 const ROUTES = new Map([
@@ -53,7 +53,7 @@ function buildSuffix(req) {
   if (segments.length !== 1 + ROUTES.get(route)) return null;
   if (!segments.every((s) => SEGMENT_OK.test(s) && s !== '.' && s !== '..')) return null;
 
-  let suffix = `/otakudesu/${segments.map(encodeURIComponent).join('/')}`;
+  let suffix = `/${source()}/${segments.map(encodeURIComponent).join('/')}`;
   if (route === 'search') {
     const url = new URL(req.url || '/', 'http://localhost');
     const q = (url.searchParams.get('q') || '').replace(/[\u0000-\u001f]/g, '').trim().slice(0, 60);
