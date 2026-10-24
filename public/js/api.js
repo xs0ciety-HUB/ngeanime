@@ -1,7 +1,8 @@
-// Klien Kitsu API: Timeout lebih cepat, paralel agar tidak menggantung
-const BASE = 'https://kitsu.io/api/edge';
+// Klien Jikan v4: timeout, cache TTL, dedupe request sama, antrean serial (±3 req/s).
+const BASE = 'https://api.jikan.moe/v4';
 const TTL = 5 * 60 * 1000;
-const TIMEOUT = 8000; // 8 detik batas waktu
+const GAP = 350; // Jaga-jaga agar tidak kena rate limit Jikan
+const TIMEOUT = 10000;
 const MAX_CACHE = 200;
 
 export class ApiError extends Error {
@@ -10,29 +11,51 @@ export class ApiError extends Error {
 
 const cache = new Map();
 const inflight = new Map();
+let chain = Promise.resolve();
+let lastStart = 0;
+
+function enqueue(task) {
+  const run = chain.then(async () => {
+    const wait = lastStart + GAP - Date.now();
+    if (wait > 0) await new Promise(r => setTimeout(r, wait));
+    lastStart = Date.now();
+    return task();
+  });
+  chain = run.catch(() => {});
+  return run;
+}
 
 async function doFetch(url) {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), TIMEOUT);
   try {
-    const res = await fetch(url, { 
-      signal: ctl.signal, 
-      headers: { 
-        'Accept': 'application/vnd.api+json',
-        'Content-Type': 'application/vnd.api+json'
-      } 
-    });
+    const res = await fetch(url, { signal: ctl.signal, headers: { Accept: 'application/json' } });
+    if (res.status === 404) throw new ApiError('notfound', 'Not found');
+    if (res.status === 429) throw new ApiError('rate', 'Rate limited');
+    if (res.status >= 500) throw new ApiError('server', `HTTP ${res.status}`);
     if (!res.ok) throw new ApiError('data', `HTTP ${res.status}`);
-    let json = await res.json();
-    if (!json || !json.data) throw new ApiError('data', 'Empty response');
+    let json;
+    try { json = await res.json(); } catch { throw new ApiError('data', 'Invalid JSON'); }
+    if (!json || typeof json !== 'object' || !('data' in json)) throw new ApiError('data', 'Unexpected response shape');
     return json;
   } catch (e) {
-    if (e.name === 'AbortError') throw new ApiError('network', 'Request timeout');
     if (e instanceof ApiError) throw e;
     throw new ApiError('network', e?.message || 'Network error');
   } finally {
     clearTimeout(timer);
   }
+}
+
+function awaitFor(promise, signal) {
+  if (!signal) return promise;
+  if (signal.aborted) return Promise.reject(new ApiError('aborted', 'aborted'));
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(new ApiError('aborted', 'aborted'));
+    signal.addEventListener('abort', onAbort, { once: true });
+    promise.then(
+      v => { signal.removeEventListener('abort', onAbort); resolve(v); },
+      e => { signal.removeEventListener('abort', onAbort); reject(e); });
+  });
 }
 
 export function get(path, params = {}, signal) {
@@ -46,8 +69,9 @@ export function get(path, params = {}, signal) {
 
   let p = inflight.get(url);
   if (!p) {
-    p = doFetch(url)
+    p = enqueue(() => doFetch(url))
       .then(json => {
+        cache.delete(url);
         cache.set(url, { json, exp: Date.now() + TTL });
         if (cache.size > MAX_CACHE) cache.delete(cache.keys().next().value);
         return json;
@@ -55,31 +79,14 @@ export function get(path, params = {}, signal) {
       .finally(() => inflight.delete(url));
     inflight.set(url, p);
   }
-  return p; // Paralel langsung
+  return awaitFor(p, signal);
 }
 
-// --- Endpoint Kitsu ---
-export const topAnime = signal => get('/anime', { 'sort': 'popularityRank', 'page[limit]': 12 }, signal);
-export const seasonNow = signal => get('/anime', { 'filter[status]': 'current', 'sort': 'popularityRank', 'page[limit]': 12 }, signal);
-
-export const searchAnime = (p, signal) => {
-  const params = {
-    'page[limit]': 24,
-    'page[offset]': (p.page - 1) * 24,
-  };
-  if (p.q) params['filter[text]'] = p.q;
-  if (p.genre) params['filter[categories]'] = p.genre;
-  if (p.type) params['filter[subtype]'] = p.type;
-  if (p.status) params['filter[status]'] = p.status === 'airing' ? 'current' : p.status === 'complete' ? 'finished' : 'upcoming';
-  
-  if (!p.q) params['sort'] = 'popularityRank';
-  
-  return get('/anime', params, signal);
-};
-
-export const animeFull = (id, signal) => get(`/anime/${id}`, { include: 'categories,episodes,streamingLinks' }, signal);
-
-export const genres = async signal => {
-  const res = await get('/categories', { 'page[limit]': 100 }, signal);
-  return res.data || [];
-};
+const arr = x => (Array.isArray(x) ? x : []);
+export const topAnime = signal => get('/top/anime', { filter: 'bypopularity', limit: 12, sfw: true }, signal);
+export const seasonNow = signal => get('/seasons/now', { limit: 12, sfw: true }, signal);
+export const searchAnime = (p, signal) => get('/anime', { limit: 24, sfw: true, ...p }, signal);
+export const animeFull = (id, signal) => get(`/anime/${id}/full`, {}, signal);
+export const recommendations = async (id, signal) => arr((await get(`/anime/${id}/recommendations`, {}, signal)).data);
+export const streaming = async (id, signal) => arr((await get(`/anime/${id}/streaming`, {}, signal)).data);
+export const genres = async signal => arr((await get('/genres/anime', {}, signal)).data);

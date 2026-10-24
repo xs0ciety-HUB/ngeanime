@@ -7,10 +7,11 @@ import {
 import { route, onNotFound, start } from './router.js';
 
 const main = document.getElementById('main');
-const TYPES = ['TV', 'movie', 'OVA', 'ONA', 'special', 'music'];
-const STATUSES = { current: 'Sedang tayang', finished: 'Selesai', upcoming: 'Akan tayang' };
+const TYPES = ['tv', 'movie', 'ova', 'special', 'ona', 'music'];
+const STATUSES = { airing: 'Sedang tayang', complete: 'Selesai', upcoming: 'Akan tayang' };
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
+// --- IKON SVG MURNI (Konsisten, Tanpa Emoji) ---
 const ICON = {
   home: ['M3 10.5L12 3l9 7.5', 'M5 9.5V21h14V9.5', 'M10 21v-6h4v6'],
   search: ['M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14z', 'M20 20l-4.2-4.2'],
@@ -63,16 +64,16 @@ function show(title, ...nodes) {
 }
 
 const MESSAGES = {
-  network: 'Koneksi lambat atau terputus. Gagal memuat data.',
-  rate: 'Terlalu banyak permintaan ke server. Tunggu sebentar.',
-  server: 'Server Kitsu sedang bermasalah.',
-  data: 'Data tidak dapat dibaca.',
+  network: 'Koneksi terputus. Periksa internetmu lalu coba lagi.',
+  rate: 'Terlalu banyak permintaan ke Jikan. Tunggu sekitar satu menit, lalu coba lagi.',
+  server: 'Server data anime sedang bermasalah. Coba lagi sebentar lagi.',
+  data: 'Data dari server tidak bisa dibaca. Coba lagi nanti.',
 };
 
 function errorState(err, retry) {
-  console.error('API Error:', err.kind, err.message);
+  console.error('Load failed:', err.kind || 'app', err.message);
   return h('div', { class: 'state', role: 'alert' },
-    h('p', {}, MESSAGES[err.kind] || 'Terjadi kesalahan sistem.'),
+    h('p', {}, MESSAGES[err.kind] || 'Terjadi kesalahan. Muat ulang halaman.'),
     retry ? h('button', { class: 'btn primary', type: 'button', onclick: retry }, 'Coba Lagi') : null);
 }
 
@@ -94,21 +95,16 @@ function favButton(item, cls = '') {
   return btn;
 }
 
-const toItem = (kitsuData) => {
-  if (!kitsuData || !kitsuData.attributes) return null;
-  const attr = kitsuData.attributes;
-  // Ambil gambar dari Kitsu
-  const posterImg = attr.posterImage?.medium || attr.posterImage?.small || attr.posterImage?.original || null;
-  
-  return {
-    id: parseInt(kitsuData.id, 10),
-    title: String(attr.canonicalTitle || attr.titles?.en || 'Tanpa judul'),
-    image: posterImg,
-    type: attr.subtype || '',
-    year: attr.startDate ? parseInt(attr.startDate.split('-')[0], 10) : null,
-    score: attr.averageRating ? parseFloat(attr.averageRating) : null,
-  };
-};
+// --- MAPPING DATA JIKAN (MAL) KE FORMAT INTERNAL ---
+const toItem = a => ({
+  id: Number.isInteger(a?.mal_id) ? a.mal_id : null,
+  title: String(a?.title_english || a?.title || 'Tanpa judul'),
+  image: a?.images?.webp?.image_url ?? a?.images?.jpg?.image_url ?? null,
+  type: typeof a?.type === 'string' ? a.type : '',
+  year: Number.isInteger(a?.year) ? a.year : null,
+  score: typeof a?.score === 'number' ? a.score : null,
+});
+const toItems = list => (Array.isArray(list) ? list : []).map(toItem).filter(i => i.id);
 
 function card(item, extra = null) {
   if (!item) return null;
@@ -127,15 +123,8 @@ function section(title, loader, signal, limit = 12) {
   const run = async () => {
     body.replaceChildren(skeletons(6));
     try {
-      const res = await loader(signal);
-      const rawItems = Array.isArray(res.data) ? res.data : (res.data ? [res.data] : []);
-      const items = rawItems.map(toItem).filter(Boolean).slice(0, limit);
-      
-      if (items.length) {
-        body.replaceChildren(h('ul', { class: 'grid' }, items.map(i => card(i))));
-      } else {
-        body.replaceChildren(emptyState('Belum ada data untuk bagian ini.'));
-      }
+      const items = toItems((await loader(signal)).data).slice(0, limit);
+      body.replaceChildren(items.length ? h('ul', { class: 'grid' }, items.map(i => card(i))) : emptyState('Belum ada data untuk bagian ini.'));
       return items;
     } catch (e) {
       if (e.kind !== 'aborted') body.replaceChildren(errorState(e, run));
@@ -145,6 +134,7 @@ function section(title, loader, signal, limit = 12) {
   return { wrap: h('section', {}, h('h2', {}, title), body), run };
 }
 
+// --- HALAMAN BERANDA ---
 route('/', async ({ signal }) => {
   const feat = h('div', {});
   const popular = section('Paling Populer', api.topAnime, signal);
@@ -164,11 +154,12 @@ route('/', async ({ signal }) => {
     feat.replaceChildren(h('a', { class: 'feat', href: `/anime/${f.id}`, 'data-link': '' },
       poster(f.title, f.image, true),
       h('div', {}, h('h3', {}, f.title),
-        h('p', {}, `Paling populer saat ini${f.type ? ` • ${f.type}` : ''}.`))));
+        h('p', {}, `Paling populer saat ini${f.type ? ` • ${f.type.toUpperCase()}` : ''}.`))));
   }
   await season.run();
 });
 
+// --- HALAMAN JELAJAH ---
 function readParams(query) {
   const page = parseInt(query.get('page') || '1', 10);
   const genre = query.get('genre') || '';
@@ -176,7 +167,8 @@ function readParams(query) {
   const status = query.get('status') || '';
   return {
     q: (query.get('q') || '').trim().slice(0, 100),
-    genre: genre, type: TYPES.includes(type) ? type : '',
+    genre: /^\d{1,4}$/.test(genre) ? genre : '',
+    type: TYPES.includes(type) ? type : '',
     status: Object.hasOwn(STATUSES, status) ? status : '',
     page: Number.isInteger(page) && page >= 1 ? page : 1,
   };
@@ -191,7 +183,7 @@ function browse(p, navSignal) {
 
   const q = h('input', { type: 'search', name: 'q', maxlength: 100, placeholder: 'Ketik judul anime...', value: p.q });
   const genre = h('select', { 'aria-label': 'Genre' }, h('option', { value: '' }, 'Semua Genre'));
-  const type = h('select', { 'aria-label': 'Tipe' }, h('option', { value: '' }, 'Semua Tipe'), TYPES.map(t => h('option', { value: t }, t)));
+  const type = h('select', { 'aria-label': 'Tipe' }, h('option', { value: '' }, 'Semua Tipe'), TYPES.map(t => h('option', { value: t }, t.toUpperCase())));
   const status = h('select', { 'aria-label': 'Status' }, h('option', { value: '' }, 'Semua Status'), Object.entries(STATUSES).map(([v, l]) => h('option', { value: v }, l)));
   
   type.value = p.type;
@@ -217,11 +209,10 @@ function browse(p, navSignal) {
     searchCtl = ctl;
     results.replaceChildren(skeletons(8));
     try {
-      const res = await api.searchAnime(s, ctl.signal);
+      const res = await api.searchAnime({ q: s.q, genres: s.genre, type: s.type, status: s.status, page: s.page, order_by: s.q ? undefined : 'popularity' }, ctl.signal);
       if (ctl.signal.aborted) return;
-      const items = (res.data || []).map(toItem).filter(Boolean);
-      const nextLink = res.links?.next;
-      
+      const items = toItems(res.data);
+      const pg = res.pagination || {};
       if (!items.length) {
         results.replaceChildren(emptyState('Tidak ada anime yang cocok dengan pencarianmu.', 
           h('button', { class: 'btn', type: 'button', onclick: () => { q.value = ''; genre.value = ''; type.value = ''; status.value = ''; apply(1); } }, 'Reset Filter')));
@@ -231,8 +222,8 @@ function browse(p, navSignal) {
         h('ul', { class: 'grid' }, items.map(i => card(i))),
         h('nav', { class: 'pager', 'aria-label': 'Halaman' },
           h('button', { class: 'btn', type: 'button', disabled: s.page <= 1, onclick: () => apply(s.page - 1) }, 'Sebelumnya'),
-          h('span', {}, `Hal ${s.page}`),
-          h('button', { class: 'btn', type: 'button', disabled: !nextLink, onclick: () => apply(s.page + 1) }, 'Berikutnya')));
+          h('span', {}, `Hal ${s.page}${pg.last_visible_page ? ` / ${pg.last_visible_page}` : ''}`),
+          h('button', { class: 'btn', type: 'button', disabled: !pg.has_next_page, onclick: () => apply(s.page + 1) }, 'Berikutnya')));
     } catch (e) {
       if (ctl.signal.aborted || e.kind === 'aborted') return;
       results.replaceChildren(errorState(e, () => load(s)));
@@ -246,13 +237,14 @@ function browse(p, navSignal) {
   show('Jelajah', h('h1', {}, 'Jelajah Anime'), form, results);
 
   api.genres(navSignal).then(list => {
-    list.forEach(g => genre.append(h('option', { value: g.attributes.slug }, g.attributes.title)));
+    list.filter(g => Number.isInteger(g.mal_id) && typeof g.name === 'string').forEach(g => genre.append(h('option', { value: g.mal_id }, g.name)));
     genre.value = p.genre;
   }).catch(e => { if (e.kind !== 'aborted') console.warn('Genre gagal dimuat'); });
 
   load(p);
 }
 
+// --- FITUR TRACKER NONTON (Bukan Gimmick) ---
 function watchPanel(item) {
   const box = h('div', { class: 'watch' });
 
@@ -306,15 +298,16 @@ function watchPanel(item) {
   return box;
 }
 
+// --- HALAMAN DETAIL ---
 route('/anime/(\\d{1,7})', ({ params, signal }) => renderAnime(Number(params[0]), signal));
 
 async function renderAnime(id, signal) {
   show('Memuat…', h('p', { class: 'lede' }, 'Memuat detail anime...'));
 
-  let res;
+  let a;
   try {
-    res = await api.animeFull(id, signal);
-    if (!res.data || parseInt(res.data.id, 10) !== id) throw new api.ApiError('data', 'Data mismatch');
+    a = (await api.animeFull(id, signal)).data;
+    if (!a || a.mal_id !== id) throw new api.ApiError('data', 'Data mismatch');
   } catch (e) {
     if (e.kind === 'aborted') return;
     if (e.kind === 'notfound') return notFound();
@@ -322,49 +315,44 @@ async function renderAnime(id, signal) {
     return;
   }
 
-  const attr = res.data.attributes;
-  const it = toItem(res.data);
+  const it = toItem(a);
+  const total = Number.isInteger(a.episodes) && a.episodes > 0 ? a.episodes : null;
+  const names = key => (Array.isArray(a[key]) ? a[key] : []).map(x => x?.name).filter(n => typeof n === 'string');
   
-  const included = res.included || [];
-  const categories = included.filter(x => x.type === 'categories').map(x => x.attributes.title);
-  const streaming = included.filter(x => x.type === 'streamingLinks').map(x => ({ name: x.attributes.url, href: x.attributes.url }));
-  
-  const totalEpisodes = attr.episodeCount;
-  const synopsis = attr.synopsis || 'Sinopsis belum tersedia.';
-
   const facts = [
-    ['Tipe', attr.subtype],
-    ['Episode', totalEpisodes || '?'],
-    ['Status', attr.status === 'current' ? 'Sedang Tayang' : attr.status === 'finished' ? 'Selesai' : attr.status],
-    ['Tayang', attr.startDate],
-    ['Skor', attr.averageRating ? parseFloat(attr.averageRating).toFixed(2) : null],
-    ['Durasi', attr.episodeLength ? `${attr.episodeLength} menit` : null],
-    ['Rating', attr.ageRatingGuide || attr.ageRating],
+    ['Tipe', a.type], ['Episode', total ?? a.episodes], ['Status', a.status],
+    ['Tayang', a.aired?.string], ['Studio', names('studios').join(', ')],
+    ['Musim', a.season && a.year ? `${a.season} ${a.year}` : a.year],
+    ['Skor', a.score ? `${a.score.toFixed(2)} (${(a.scored_by ?? 0).toLocaleString('id-ID')} suara)` : null],
+    ['Durasi', a.duration], ['Rating', a.rating],
   ].filter(([, v]) => v != null && v !== '');
 
   const info = h('div', {},
     h('h1', {}, it.title),
-    attr.titles?.ja_jp ? h('p', { class: 'meta', lang: 'ja', style: 'margin-bottom: 1rem;' }, attr.titles.ja_jp) : null,
-    h('ul', { class: 'tags' }, categories.map(n => h('li', {}, n))),
+    a.title_japanese ? h('p', { class: 'meta', lang: 'ja', style: 'margin-bottom: 1rem;' }, String(a.title_japanese)) : null,
+    h('ul', { class: 'tags' }, [...names('genres'), ...names('themes')].map(n => h('li', {}, n))),
     h('dl', { class: 'facts' }, facts.flatMap(([k, v]) => [h('dt', {}, k), h('dd', {}, String(v))])),
     h('h2', {}, 'Sinopsis'),
-    h('p', { class: 'syn' }, synopsis),
-    watchPanel({ ...it, total: totalEpisodes }));
+    h('p', { class: 'syn' }, a.synopsis || 'Sinopsis belum tersedia dari MyAnimeList.'),
+    watchPanel({ ...it, total }));
 
   const article = h('article', { class: 'detail' },
-    h('div', { class: 'side' }, poster(it.title, attr.posterImage?.large || attr.posterImage?.original || it.image, true), favButton(it, 'inline')),
+    h('div', { class: 'side' }, poster(it.title, a.images?.webp?.large_image_url ?? it.image, true), favButton(it, 'inline')),
     info);
 
   show(it.title, article);
 
-  if (streaming.length) {
+  api.streaming(id, signal).then(list => {
+    const links = list.filter(s => s && typeof s.name === 'string').map(s => ({ name: s.name, href: safeLink(s.url) })).filter(l => l.href);
+    if (!links.length) return;
     info.append(
       h('h2', {}, 'Tonton Resmi'),
-      h('p', { class: 'meta', style: 'margin-bottom: 1rem;' }, 'Tautan diarahkan ke layanan legal.'),
-      h('ul', { class: 'tags' }, streaming.map(l => h('li', {}, h('a', { href: l.href, target: '_blank', rel: 'noopener noreferrer' }, l.name)))));
-  }
+      h('p', { class: 'meta', style: 'margin-bottom: 1rem;' }, 'Kakemono tidak memutar video. Tautan diarahkan ke layanan legal.'),
+      h('ul', { class: 'tags' }, links.map(l => h('li', {}, h('a', { href: l.href, target: '_blank', rel: 'noopener noreferrer' }, l.name)))));
+  }).catch(e => { if (e.kind !== 'aborted') console.warn('Streaming links unavailable'); });
 }
 
+// --- HALAMAN KOLEKSI ---
 function progressLine(w) {
   return h('p', { class: 'meta', style: 'color: var(--teal); font-weight: 500;' }, `${WATCH_STATUSES[w.status]} • Eps ${w.episode}${w.total ? ` / ${w.total}` : ''}`);
 }
@@ -380,6 +368,7 @@ function renderFavorites() {
 }
 route('/favorites', renderFavorites);
 
+// --- HALAMAN DEVELOPER ---
 function renderDeveloper() {
   show('Developer', h('section', { class: 'dev' },
     h('img', { class: 'avatar', src: '/img/xs0ciety.png', width: 160, height: 160, alt: 'Foto Profil xs0cietyHUB', decoding: 'async', onerror: (e) => { e.target.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160"><rect width="160" height="160" fill="%231d2040"/><circle cx="80" cy="60" r="30" fill="%2331365c"/><path d="M40 140c0-22 18-40 40-40s40 18 40 40" fill="%2331365c"/></svg>'; } }),
@@ -395,6 +384,7 @@ function renderDeveloper() {
 }
 route('/developer', renderDeveloper);
 
+// --- 404 ---
 function notFound() {
   show('Tidak Ditemukan', h('div', { class: 'state' },
     h('p', { class: 'nf' }, '404'),
@@ -403,6 +393,7 @@ function notFound() {
 }
 onNotFound(notFound);
 
+// --- INISIALISASI TAB BAR ---
 document.getElementById('tabbar').replaceChildren(...TABS.map(t =>
   h('a', { href: t.href, 'data-link': '' }, icon(t.icon, 24), h('span', {}, t.label))));
 
