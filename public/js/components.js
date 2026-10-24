@@ -39,7 +39,8 @@ export function posterImage(rawUrl, alt, { eager = false } = {}) {
 }
 
 export function animeCard(anime) {
-  const link = el('a', { class: 'card', href: `/anime/${encodeURIComponent(anime.animeId)}`, 'data-link': '' });
+  const href = anime.animeId ? `/anime/${encodeURIComponent(anime.animeId)}` : `/watch/${encodeURIComponent(anime.episodeId)}`;
+  const link = el('a', { class: 'card', href, 'data-link': '' });
   const poster = el('div', { class: 'card-poster' });
   poster.append(posterImage(anime.poster, anime.title));
   if (anime.status) poster.append(el('span', { class: 'card-badge' }, anime.status));

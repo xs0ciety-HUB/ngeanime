@@ -25,17 +25,12 @@ register('/', async ({ signal }) => {
     const data = await getHome({ signal });
     if (signal.aborted) return;
     clear(container);
-    if (data.ongoing.length > 0) {
-      const s = el('section', { class: 'section' });
-      s.append(sectionHead('Sedang Tayang'), el('div', { class: 'grid' }, ...data.ongoing.map(animeCard)));
-      container.append(s);
+    for (const { title, list } of data.sections) {
+      const section = el('section', { class: 'section' });
+      section.append(sectionHead(title), el('div', { class: 'grid' }, ...list.map(animeCard)));
+      container.append(section);
     }
-    if (data.complete.length > 0) {
-      const s = el('section', { class: 'section' });
-      s.append(sectionHead('Selesai'), el('div', { class: 'grid' }, ...data.complete.map(animeCard)));
-      container.append(s);
-    }
-    if (data.ongoing.length === 0 && data.complete.length === 0) {
+    if (data.sections.length === 0) {
       container.append(emptyState('Belum ada data', 'Sumber tidak mengembalikan daftar anime.'));
     }
   } catch (err) {

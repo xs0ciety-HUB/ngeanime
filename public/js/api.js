@@ -99,13 +99,35 @@ function pickList(value, ...keys) {
   return [];
 }
 
+/** Last path segment of a site URL or API path: "https://x/y/slug/" -> "slug". */
+function slugFromHref(href) {
+  if (typeof href !== 'string') return '';
+  let path = href;
+  try { path = new URL(href).pathname; } catch { /* already a path */ }
+  const parts = path.split('/').filter(Boolean);
+  return parts.length ? decodeURIComponent(parts[parts.length - 1]) : '';
+}
+
+/** "Black Clover\t\t\tBlack Clover Episode 170" -> "Black Clover" */
+function firstLine(text) { return sanitizeText(String(text ?? '').split(/\t+|\s{3,}/)[0], 200); }
+
+/**
+ * Accepts both source shapes:
+ *  - series items  { title, animeId, poster, status }                       (otakudesu)
+ *  - episode items { title, seriesName, episode, href, poster, status }     (oploverz home: no animeId, href is a site URL)
+ */
 function normAnime(raw) {
-  if (!raw || !raw.title || !raw.animeId) return null;
+  if (!raw || !raw.title) return null;
+  const animeId = sanitizeText(raw.animeId, 200);
+  const episodeId = !animeId ? sanitizeText(raw.episodeId, 200) || slugFromHref(raw.href) : '';
+  if (!animeId && !episodeId) return null;
+  const name = firstLine(raw.seriesName) || sanitizeText(raw.title, 200);
   return {
-    title: sanitizeText(raw.title, 200),
-    animeId: sanitizeText(raw.animeId, 200),
+    title: animeId ? sanitizeText(raw.title, 200) : name,
+    animeId,
+    episodeId,
     poster: safeHttpsUrl(raw.poster),
-    status: sanitizeText(raw.status, 60) || null,
+    status: sanitizeText(raw.episode, 60) || sanitizeText(raw.status, 60) || null,
   };
 }
 function normList(list) { return Array.isArray(list) ? list.map(normAnime).filter(Boolean) : []; }
@@ -140,12 +162,15 @@ export async function getHome({ signal } = {}) {
   if (hit) return hit;
   const json = await fetchJson('/home', { signal });
   assertOk(json, 'Beranda tidak tersedia');
-  const { ongoing, complete, completed } = json.data;
-  const res = {
-    ongoing: normList(pickList(ongoing, 'animeList')),
-    complete: normList(pickList(complete ?? completed, 'animeList')),
-  };
-  if (res.ongoing.length || res.complete.length) setCached('home', res);
+  const d = json.data;
+  const sections = [
+    { title: 'Sedang Tayang', list: normList(pickList(d.ongoing, 'animeList')) },
+    { title: 'Selesai', list: normList(pickList(d.complete ?? d.completed, 'animeList')) },
+    { title: 'Populer Hari Ini', list: normList(pickList(d.popularToday, 'animeList')) },
+    { title: 'Rilis Terbaru', list: normList(pickList(d.latestRelease, 'animeList')) },
+  ].filter((section) => section.list.length > 0);
+  const res = { sections };
+  if (sections.length) setCached('home', res);
   return res;
 }
 
