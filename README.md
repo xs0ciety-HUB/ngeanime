@@ -33,13 +33,15 @@ Dibangun dengan Vanilla JS + ES Modules. Tanpa build step, siap deploy ke Vercel
 
 ## Environment Variables
 
-Semua opsional:
+Atur di Vercel: Project → Settings → Environment Variables → isi Name dan Value → Save → tab Deployments → Redeploy.
 
-| Variabel | Default | Fungsi |
+| Variabel | Wajib | Fungsi |
 |---|---|---|
-| `ANIME_API_BASE` | `https://anime-api-red-pi.vercel.app` | Base URL API upstream. Boleh lebih dari satu, pisah koma; dicoba berurutan sampai ada yang berhasil |
-| `ANIME_SOURCE` | `oploverz` | Sumber di API upstream: `oploverz`, `otakudesu`, `kuramanime`, dst. |
-| `IMG_HOST_ALLOW` | (kosong = semua host publik) | Daftar suffix host gambar yang diizinkan, pisah koma |
+| `ANIME_API_BASE` | **Ya** | Base URL API upstream milikmu, mis. `https://nama-api-kamu.vercel.app`. Tidak ada nilai bawaan, supaya alamat itu tidak ikut bocor lewat kode di GitHub. Boleh lebih dari satu, pisah koma |
+| `ANIME_SOURCE` | Tidak (`oploverz`) | Sumber di API upstream: `oploverz`, `otakudesu`, `kuramanime`, dst. |
+| `HEALTH_TOKEN` | Tidak | Kata sandi acak panjang untuk membuka `/api/health?token=...`. Tanpa ini `/api/health` selalu 404 |
+| `UPSTREAM_BYPASS_SECRET` | Tidak | Secret "Protection Bypass for Automation" Vercel, dikirim ke upstream sebagai header `x-vercel-protection-bypass` |
+| `IMG_HOST_ALLOW` | Tidak | Mengganti daftar host gambar yang boleh diambil `/api/img` (suffix, pisah koma). Bawaan: `wp.com, oploverz.am, otakudesu.*, myanimelist.net` |
 
 ## Endpoint API (terverifikasi)
 
@@ -62,20 +64,26 @@ Base URL: `https://wajik-anime-api.vercel.app`
 
 ## Diagnosis error 403 / 502
 
-Buka `https://<domain-anda>/api/health`. Endpoint ini menanyakan tiap upstream dan menampilkan status, header `server`, dan cuplikan body. `server: cloudflare` atau body berisi 'blocked' berarti upstream memblokir IP Vercel; solusinya mengganti atau menambah `ANIME_API_BASE`.
+Buka `https://<domain-anda>/api/health?token=<HEALTH_TOKEN>`. Endpoint ini menanyakan tiap upstream dan menampilkan status, header `server`, dan cuplikan body. Jangan bagikan URL yang memuat token itu.
 
-## Jika `/api/health` menunjukkan 403 dari upstream
-
-Respons `{"statusCode":403,"data":null}` dengan `server: Vercel` berarti API publik itu sendiri gagal mengambil data dari situs sumber (Cloudflare menolak IP datacenter) atau instance publiknya diblokir. Itu bukan bug di proyek ini.
-
-1. Deploy instance API milikmu sendiri dari repo `wajik45/wajik-anime-api` (atau `JonathanZefanya/superanime-rest-api`, bentuk respons sama) ke akun Vercel-mu. Pilih region dekat Indonesia (mis. `sin1`) di Project Settings → Functions.
-2. Di proyek ini set `ANIME_API_BASE=https://instance-milikmu.vercel.app,https://wajik-anime-api.vercel.app`.
-3. Redeploy, lalu cek `/api/health`.
-4. Jika instance sendiri di Vercel juga 403, sumbernya memblokir semua IP datacenter. Jalankan API itu di mesin dengan IP residensial atau VPS Indonesia, lalu arahkan `ANIME_API_BASE` ke sana.
-
-Saat semua upstream gagal, proxy menyajikan data terakhir yang berhasil (header `X-Stale: 1`) selama instance function masih hangat, maksimal 6 jam.
+- `403` dengan `statusMessage: Forbidden` dalam hitungan milidetik: situs sumber memblokir IP datacenter Vercel. Ganti `ANIME_SOURCE` ke sumber lain yang hidup, atau jalankan API upstream di VPS / komputer dengan IP biasa.
+- `404` di halaman tonton: pesan error kini memuat alasan dari upstream. Cek bahwa id episode yang dikirim sesuai yang diharapkan API.
 
 ## Keamanan
+
+### Melindungi API dari scraper dan pencuri
+
+Yang sudah ada di kode:
+- Alamat API upstream hanya ada di environment variable server. Tidak ada di JS browser, tidak ada nilai bawaan di repo, dan tidak pernah dikembalikan ke klien (galat hanya memuat status dan pesan).
+- `/api/otakudesu/*` dan `/api/img` menolak (403) request dari situs lain dan klien tanpa header browser (curl, skrip sederhana). Ini mencegah hotlink dan pemakaian API-mu oleh aplikasi lain.
+- Batas per IP: 90 request JSON dan 600 request gambar per menit (429 + `Retry-After`).
+- `/api/img` hanya mengambil dari host poster yang dikenal, bukan proxy gambar terbuka. Tidak menerima IP, localhost, port lain, atau file selain gambar raster.
+- `/api/health` mati (404) kecuali `HEALTH_TOKEN` diatur dan dikirim.
+
+Batasan yang jujur: JS di browser tidak bisa dirahasiakan, dan header `Sec-Fetch-Site` bisa dipalsukan oleh scraper yang gigih. Batas per IP di kode hanya berlaku per instance function. Untuk perlindungan yang sebenarnya, aktifkan juga di dashboard Vercel:
+1. **Firewall → Add Rule → Rate Limit** untuk path `/api/*`, misalnya 60 request per menit per IP.
+2. **Project upstream → Settings → Deployment Protection**: aktifkan, buat "Protection Bypass for Automation", lalu isi secret-nya ke `UPSTREAM_BYPASS_SECRET` di proyek ini. Setelah itu orang yang mengetahui URL upstream-mu tidak bisa memakainya. Fitur ini bergantung pada paket Vercel-mu.
+3. Kalau URL upstream pernah terpublikasi (di repo publik atau chat), anggap sudah bocor: buat ulang project upstream dengan nama baru lalu ganti `ANIME_API_BASE`.
 
 - Semua data API di-render via `textContent`/DOM API, **tidak ada `innerHTML`** untuk data API.
 - URL divalidasi lewat konstruktor `URL` + cek `protocol === 'https:'`.
