@@ -41,7 +41,8 @@ async function requestOnce(path, signal) {
 
   if (!res.ok) {
     const detail = body && typeof body.error === 'string' ? body.error : null;
-    throw new ApiError(detail || STATUS_MESSAGE[res.status] || `Gagal memuat data (HTTP ${res.status}).`, res.status);
+    const hint = res.status === 502 ? ' Diagnosis: buka /api/health.' : '';
+    throw new ApiError(`${detail || STATUS_MESSAGE[res.status] || `Gagal memuat data (HTTP ${res.status}).`}${hint}`, res.status);
   }
   if (!body) throw new ApiError('Respons server bukan JSON. Pastikan folder /api ikut ter-deploy.', res.status);
   return body;
