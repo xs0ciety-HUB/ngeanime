@@ -1,5 +1,6 @@
-const BASE_URL = 'https://wajik-anime-api.vercel.app';
-const DEFAULT_TIMEOUT = 12000;
+// GANTI: Gunakan proxy internal, bukan langsung ke wajik-anime-api
+const BASE_URL = '/api/anime';
+const DEFAULT_TIMEOUT = 15000;
 const CACHE_TTL = 5 * 60 * 1000;
 const MAX_QUERY_LEN = 60;
 const cache = new Map();
@@ -21,7 +22,6 @@ async function fetchJson(path, { timeout = DEFAULT_TIMEOUT, signal } = {}) {
       signal: s,
       headers: { Accept: 'application/json' },
       credentials: 'omit',
-      mode: 'cors',
     });
     if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
     const ct = (res.headers.get('content-type') || '').toLowerCase();
@@ -116,7 +116,7 @@ export async function searchAnime(query, { signal } = {}) {
   const key = `search:${q}`;
   const cached = getCached(key);
   if (cached) return cached;
-  const json = await fetchJson(`/otakudesu/search?q=${encodeURIComponent(q)}`, { signal });
+  const json = await fetchJson(`/search?q=${encodeURIComponent(q)}`, { signal });
   if (json.statusCode !== 200 || !json.data) {
     throw new Error(json.message || 'Pencarian gagal');
   }
@@ -132,7 +132,7 @@ export async function getHome({ signal } = {}) {
   const key = 'home';
   const cached = getCached(key);
   if (cached) return cached;
-  const json = await fetchJson('/otakudesu/home', { signal });
+  const json = await fetchJson('/home', { signal });
   if (json.statusCode !== 200 || !json.data) {
     throw new Error(json.message || 'Beranda tidak tersedia');
   }
@@ -150,7 +150,7 @@ export async function getAnimeDetail(animeId, { signal } = {}) {
   const key = `anime:${id}`;
   const cached = getCached(key);
   if (cached) return cached;
-  const json = await fetchJson(`/otakudesu/anime/${encodeURIComponent(id)}`, { signal });
+  const json = await fetchJson(`/anime/${encodeURIComponent(id)}`, { signal });
   if (json.statusCode !== 200 || !json.data) {
     throw new Error(json.message || 'Detail anime tidak tersedia');
   }
@@ -172,9 +172,7 @@ export async function getAnimeDetail(animeId, { signal } = {}) {
       tanggalRilis: sanitizeText(info.tanggal_rilis, 60),
       studio: sanitizeText(info.studio, 100),
       genre: Array.isArray(info.genre)
-        ? info.genre
-            .map((g) => sanitizeText(g?.name || g?.title, 60))
-            .filter(Boolean)
+        ? info.genre.map((g) => sanitizeText(g?.name || g?.title, 60)).filter(Boolean)
         : [],
     },
     episodeList: normalizeEpisodeList(d.episodeList),
@@ -186,7 +184,7 @@ export async function getAnimeDetail(animeId, { signal } = {}) {
 export async function getEpisode(episodeId, { signal } = {}) {
   const id = sanitizeText(episodeId, 200);
   if (!id) throw new Error('ID episode tidak valid');
-  const json = await fetchJson(`/otakudesu/episode/${encodeURIComponent(id)}`, { signal });
+  const json = await fetchJson(`/episode/${encodeURIComponent(id)}`, { signal });
   if (json.statusCode !== 200 || !json.data) {
     throw new Error(json.message || 'Episode tidak tersedia');
   }
@@ -222,7 +220,7 @@ export async function getEpisode(episodeId, { signal } = {}) {
 export async function getServerUrl(serverId, { signal } = {}) {
   const id = sanitizeText(serverId, 200);
   if (!id) throw new Error('ID server tidak valid');
-  const json = await fetchJson(`/otakudesu/server/${encodeURIComponent(id)}`, { signal });
+  const json = await fetchJson(`/server/${encodeURIComponent(id)}`, { signal });
   if (json.statusCode !== 200 || !json.data || typeof json.data.url !== 'string') {
     throw new Error('URL server tidak tersedia');
   }
