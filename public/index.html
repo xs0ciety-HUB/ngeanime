@@ -3,15 +3,26 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Kakemono — Nonton Anime</title>
-<meta name="description" content="Kakemono: cari anime, baca sinopsis, cek skor dan rekomendasi, lalu catat progres tontonanmu. Data dari MyAnimeList. Dikembangkan oleh xs0cietyHUB.">
-<meta name="keywords" content="anime, nonton anime, daftar anime, rekomendasi anime, jadwal anime, anime musim ini, anime populer, sinopsis anime, MyAnimeList, Kakemono, xs0cietyHUB, xs0ciety">
+<title>Kakemono — Temukan & Catat Tontonan Anime</title>
+<meta name="description" content="Kakemono adalah platform untuk mencari anime, membaca sinopsis, melihat skor, dan mencatat progres tontonanmu. Data anime diambil langsung dari MyAnimeList. Dibuat oleh xs0cietyHUB.">
+<meta name="keywords" content="anime, nonton anime, daftar anime, rekomendasi anime, jadwal anime, anime musim ini, anime populer, sinopsis anime, MyAnimeList, Kakemono, xs0cietyHUB, xs0ciety, tracker anime, anime indonesia">
 <meta name="author" content="xs0cietyHUB">
-<meta name="robots" content="index, follow">
+<meta name="robots" content="index, follow, max-image-preview:large">
+<meta name="theme-color" content="#171a3c">
+
+<!-- Open Graph / Facebook -->
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Kakemono">
-<meta property="og:title" content="Kakemono — temukan anime">
-<meta property="og:description" content="Cari anime, catat progres tontonan, dan temukan rekomendasi. Data dari MyAnimeList.">
+<meta property="og:title" content="Kakemono — Temukan Anime Berikutnya">
+<meta property="og:description" content="Cari judul, jelajahi genre, dan simpan daftar tontonanmu. Semua data dari MyAnimeList.">
+<meta property="og:image" content="/img/og-image.jpg">
+
+<!-- Twitter -->
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Kakemono — Temukan Anime Berikutnya">
+<meta name="twitter:description" content="Cari judul, jelajahi genre, dan simpan daftar tontonanmu.">
+<meta name="twitter:image" content="/img/og-image.jpg">
+
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/css/style.css">
 <script type="application/ld+json">
@@ -21,6 +32,7 @@
     {
       "@type": "WebSite",
       "name": "Kakemono",
+      "url": "https://nganime.vercel.app/",
       "description": "Cari, jelajahi, dan catat tontonan anime. Data dari MyAnimeList."
     },
     {
@@ -39,22 +51,23 @@
 </script>
 </head>
 <body>
-<noscript><p>Kakemono butuh JavaScript untuk berjalan.</p></noscript>
+<noscript><p style="padding: 2rem; text-align: center;">Kakemono membutuhkan JavaScript untuk berjalan. Silakan aktifkan JavaScript di browser Anda.</p></noscript>
 <a class="skip" href="#main">Lewati ke konten</a>
 <header class="top">
   <a class="brand" href="/" data-link>
-    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false">
-      <rect x="5" y="2" width="14" height="20" rx="2" fill="#ff7aa8"/>
-      <rect x="9" y="6" width="6" height="2" rx="1" fill="#171a3c"/>
-      <rect x="9" y="10" width="6" height="2" rx="1" fill="#171a3c"/>
-      <rect x="9" y="14" width="4" height="2" rx="1" fill="#171a3c"/>
+    <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false">
+      <rect x="4" y="2" width="16" height="20" rx="3" fill="#ff7aa8"/>
+      <rect x="9" y="7" width="6" height="2" rx="1" fill="#171a3c"/>
+      <rect x="9" y="11" width="6" height="2" rx="1" fill="#171a3c"/>
+      <rect x="9" y="15" width="4" height="2" rx="1" fill="#171a3c"/>
     </svg>
     <span>Kakemono</span>
   </a>
 </header>
 <main id="main" tabindex="-1"></main>
 <footer class="foot">
-  Data dari MyAnimeList melalui Jikan API. Kakemono tidak memutar atau menyimpan video. Tautan streaming hanya menuju layanan resmi.
+  <p>Data dari MyAnimeList melalui Jikan API.</p>
+  <p>Kakemono tidak memutar atau menyimpan video. Tautan streaming hanya menuju layanan resmi.</p>
 </footer>
 <nav class="tabbar" id="tabbar" aria-label="Menu utama"></nav>
 <div id="toast" role="status" aria-live="polite"></div>
