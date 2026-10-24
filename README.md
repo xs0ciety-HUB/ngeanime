@@ -37,7 +37,7 @@ Semua opsional:
 
 | Variabel | Default | Fungsi |
 |---|---|---|
-| `ANIME_API_BASE` | `https://wajik-anime-api.vercel.app` | Base URL API upstream |
+| `ANIME_API_BASE` | `https://wajik-anime-api.vercel.app` | Base URL API upstream. Boleh lebih dari satu, pisah koma; dicoba berurutan sampai ada yang berhasil |
 | `IMG_HOST_ALLOW` | (kosong = semua host publik) | Daftar suffix host gambar yang diizinkan, pisah koma |
 
 ## Endpoint API (terverifikasi)
@@ -58,6 +58,10 @@ Base URL: `https://wajik-anime-api.vercel.app`
 - Upstream **kadang mengembalikan 403/5xx**. Proxy mencoba ulang sekali; bila tetap gagal, UI menampilkan pesan error dan tombol retry. Error tidak di-cache.
 - Browser **tidak pernah** memanggil API upstream atau CDN gambar langsung. Semua lewat `/api/otakudesu/*` dan `/api/img` di origin sendiri, jadi tidak ada CORS, tidak ada proxy publik pihak ketiga.
 - Player menyediakan tombol server. Jika server utama gagal tampil, pilih server lain di bawah player.
+
+## Diagnosis error 403 / 502
+
+Buka `https://<domain-anda>/api/health`. Endpoint ini menanyakan tiap upstream dan menampilkan status, header `server`, dan cuplikan body. `server: cloudflare` atau body berisi 'blocked' berarti upstream memblokir IP Vercel; solusinya mengganti atau menambah `ANIME_API_BASE`.
 
 ## Keamanan
 
