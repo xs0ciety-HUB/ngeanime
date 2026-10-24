@@ -1,26 +1,14 @@
 export default async function handler(req, res) {
-  // Izinkan CORS dari frontend Anda
+  // CORS header (opsional tapi aman)
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
+  if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
 
-  if (req.method !== 'GET') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
-
-  // Ambil path dari query parameter (?path=home)
+  // Vercel secara otomatis mengisi req.query dari URLSearchParams
   const path = req.query.path;
   
-  if (!path || typeof path !== 'string') {
-    return res.status(400).json({ error: 'Parameter path wajib diisi' });
-  }
-
-  // Validasi keamanan: hanya izinkan path yang aman
-  if (!path.startsWith('/')) {
-    return res.status(400).json({ error: 'Format path tidak valid' });
+  if (!path || typeof path !== 'string' || !path.startsWith('/')) {
+    return res.status(400).json({ error: 'Parameter path tidak valid' });
   }
 
   const targetUrl = `https://wajik-anime-api.vercel.app/otakudesu${path}`;
@@ -30,7 +18,6 @@ export default async function handler(req, res) {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'application/json, text/plain, */*',
-        'Accept-Language': 'en-US,en;q=0.9,id;q=0.8',
         'Referer': 'https://otakudesu.cloud/',
         'Origin': 'https://otakudesu.cloud',
       },
@@ -41,11 +28,8 @@ export default async function handler(req, res) {
     }
 
     const data = await response.json();
-    
-    // Simpan cache di server Vercel selama 60 detik
     res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate=300');
     return res.status(200).json(data);
-    
   } catch (err) {
     console.error('Proxy error:', err);
     return res.status(502).json({ error: 'Gagal menghubungi API upstream' });
