@@ -1,3 +1,5 @@
+import { imageSrc } from './api.js';
+
 export function el(tag, props = {}, ...children) {
   const node = document.createElement(tag);
   for (const [key, val] of Object.entries(props)) {
@@ -16,12 +18,30 @@ export function el(tag, props = {}, ...children) {
 
 export function clear(parent) { while (parent.firstChild) parent.removeChild(parent.firstChild); }
 
+/** <img> for a poster: proxied through /api/img, swaps to a titled placeholder if the load fails. */
+export function posterImage(rawUrl, alt, { eager = false } = {}) {
+  const src = imageSrc(rawUrl);
+  const fallback = () => el('div', { class: 'poster-fallback', role: 'img', 'aria-label': alt || 'Poster tidak tersedia' }, (alt || '?').trim().charAt(0).toUpperCase() || '?');
+  if (!src) return fallback();
+
+  const img = el('img', { src, alt: alt || '', decoding: 'async', referrerpolicy: 'no-referrer' });
+  if (!eager) img.setAttribute('loading', 'lazy');
+  let retried = false;
+  img.addEventListener('error', () => {
+    if (!retried) {
+      retried = true;
+      img.src = `${src}${src.includes('&_r=') ? '' : '&_r=1'}`;
+      return;
+    }
+    img.replaceWith(fallback());
+  });
+  return img;
+}
+
 export function animeCard(anime) {
   const link = el('a', { class: 'card', href: `/anime/${encodeURIComponent(anime.animeId)}`, 'data-link': '' });
   const poster = el('div', { class: 'card-poster' });
-  if (anime.poster) {
-    poster.append(el('img', { src: anime.poster, alt: anime.title, loading: 'lazy', referrerpolicy: 'no-referrer' }));
-  }
+  poster.append(posterImage(anime.poster, anime.title));
   if (anime.status) poster.append(el('span', { class: 'card-badge' }, anime.status));
   link.append(poster, el('div', { class: 'card-body' }, el('h3', { class: 'card-title' }, anime.title)));
   return link;

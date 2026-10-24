@@ -1,5 +1,6 @@
 const routes = [];
 let currentCleanup = null;
+let currentController = null;
 let notFoundHandler = null;
 
 export function register(pattern, handler) {
@@ -32,15 +33,20 @@ export async function render() {
   const search = new URLSearchParams(location.search);
   if (currentCleanup) { try { currentCleanup(); } catch {} currentCleanup = null; }
 
+  // Each navigation aborts the previous one, so a slow response can never paint into a newer page.
+  if (currentController) currentController.abort();
+  currentController = new AbortController();
+  const { signal } = currentController;
+
   for (const route of routes) {
     const params = matchPattern(route.pattern, pathname);
     if (params) {
-      const result = await route.handler({ params, search, pathname });
+      const result = await route.handler({ params, search, pathname, signal });
       if (typeof result === 'function') currentCleanup = result;
       return;
     }
   }
-  if (notFoundHandler) await notFoundHandler({ pathname });
+  if (notFoundHandler) await notFoundHandler({ pathname, signal });
 }
 
 export function start() {
