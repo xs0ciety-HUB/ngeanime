@@ -63,6 +63,17 @@ Base URL: `https://wajik-anime-api.vercel.app`
 
 Buka `https://<domain-anda>/api/health`. Endpoint ini menanyakan tiap upstream dan menampilkan status, header `server`, dan cuplikan body. `server: cloudflare` atau body berisi 'blocked' berarti upstream memblokir IP Vercel; solusinya mengganti atau menambah `ANIME_API_BASE`.
 
+## Jika `/api/health` menunjukkan 403 dari upstream
+
+Respons `{"statusCode":403,"data":null}` dengan `server: Vercel` berarti API publik itu sendiri gagal mengambil data dari situs sumber (Cloudflare menolak IP datacenter) atau instance publiknya diblokir. Itu bukan bug di proyek ini.
+
+1. Deploy instance API milikmu sendiri dari repo `wajik45/wajik-anime-api` (atau `JonathanZefanya/superanime-rest-api`, bentuk respons sama) ke akun Vercel-mu. Pilih region dekat Indonesia (mis. `sin1`) di Project Settings → Functions.
+2. Di proyek ini set `ANIME_API_BASE=https://instance-milikmu.vercel.app,https://wajik-anime-api.vercel.app`.
+3. Redeploy, lalu cek `/api/health`.
+4. Jika instance sendiri di Vercel juga 403, sumbernya memblokir semua IP datacenter. Jalankan API itu di mesin dengan IP residensial atau VPS Indonesia, lalu arahkan `ANIME_API_BASE` ke sana.
+
+Saat semua upstream gagal, proxy menyajikan data terakhir yang berhasil (header `X-Stale: 1`) selama instance function masih hangat, maksimal 6 jam.
+
 ## Keamanan
 
 - Semua data API di-render via `textContent`/DOM API, **tidak ada `innerHTML`** untuk data API.
