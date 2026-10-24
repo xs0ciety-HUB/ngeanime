@@ -38,6 +38,7 @@ Semua opsional:
 | Variabel | Default | Fungsi |
 |---|---|---|
 | `ANIME_API_BASE` | `https://anime-api-red-pi.vercel.app` | Base URL API upstream. Boleh lebih dari satu, pisah koma; dicoba berurutan sampai ada yang berhasil |
+| `ANIME_SOURCE` | `oploverz` | Sumber di API upstream: `oploverz`, `otakudesu`, `kuramanime`, dst. |
 | `IMG_HOST_ALLOW` | (kosong = semua host publik) | Daftar suffix host gambar yang diizinkan, pisah koma |
 
 ## Endpoint API (terverifikasi)
