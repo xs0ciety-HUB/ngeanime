@@ -21,6 +21,10 @@ const ROUTES = new Map([
   ['server', 1],
 ]);
 const CDN_TTL = { home: 300, search: 300, anime: 600, episode: 300, server: 60 };
+// Last good payload per path, per warm instance: served (marked stale) when every upstream fails.
+const LAST_GOOD = new Map();
+const LAST_GOOD_MAX = 200;
+const LAST_GOOD_TTL_MS = 6 * 60 * 60 * 1000;
 const SEGMENT_OK = /^[^\/\\\u0000-\u001f\u007f]{1,300}$/;
 
 function readSegments(req) {
@@ -78,6 +82,12 @@ module.exports = async function handler(req, res) {
   if (!upstream) {
     const last = failures[failures.length - 1] || {};
     console.error('[otakudesu] all upstreams failed', built.suffix, JSON.stringify(failures));
+    const stale = LAST_GOOD.get(built.suffix);
+    if (stale && Date.now() - stale.at < LAST_GOOD_TTL_MS) {
+      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('X-Stale', '1');
+      return res.status(200).json(stale.payload);
+    }
     const reason = last.status ? `Sumber menolak permintaan (HTTP ${last.status})` : 'Server sumber tidak merespons, coba lagi sebentar lagi';
     return fail(res, 502, reason, { upstreamStatus: last.status || null, detail: last.detail || '', tried: failures });
   }
@@ -94,6 +104,8 @@ module.exports = async function handler(req, res) {
     return fail(res, 502, 'Respons sumber bukan JSON', { upstreamStatus: upstream.status });
   }
 
+  if (LAST_GOOD.size >= LAST_GOOD_MAX) LAST_GOOD.delete(LAST_GOOD.keys().next().value);
+  LAST_GOOD.set(built.suffix, { at: Date.now(), payload });
   res.setHeader('Cache-Control', `public, max-age=0, s-maxage=${CDN_TTL[built.route]}, stale-while-revalidate=3600`);
   return res.status(200).json(payload);
 };
