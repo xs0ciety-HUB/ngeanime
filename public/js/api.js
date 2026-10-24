@@ -1,31 +1,38 @@
-// Menggunakan API alternatif yang lebih stabil & CORS-friendly
-const BASE_URL = 'https://otakudesu-anime-api.vercel.app/otakudesu';
-const DEFAULT_TIMEOUT = 15000;
+const BASE_URL = 'https://wajik-anime-api.vercel.app/otakudesu';
+const PROXIES = [
+  (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+  (url) => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
+  (url) => `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(url)}`
+];
+const DEFAULT_TIMEOUT = 25000;
 const CACHE_TTL = 10 * 60 * 1000;
 const cache = new Map();
 
 async function fetchJson(path, { signal } = {}) {
   const targetUrl = `${BASE_URL}${path}`;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(new DOMException('Timeout', 'TimeoutError')), DEFAULT_TIMEOUT);
-  const combinedSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
+  let lastError = null;
 
-  try {
-    const res = await fetch(targetUrl, {
-      signal: combinedSignal,
-      headers: { 'Accept': 'application/json' }
-    });
-    clearTimeout(timer);
-    
-    if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
-    const ct = (res.headers.get('content-type') || '').toLowerCase();
-    if (!ct.includes('application/json')) throw new Error('Respons bukan JSON');
-    
-    return await res.json();
-  } catch (err) {
-    clearTimeout(timer);
-    throw err;
+  for (const proxy of PROXIES) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT);
+    const combinedSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
+
+    try {
+      const res = await fetch(proxy(targetUrl), { signal: combinedSignal, headers: { Accept: 'application/json' } });
+      clearTimeout(timer);
+      
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const ct = (res.headers.get('content-type') || '').toLowerCase();
+      if (!ct.includes('application/json')) throw new Error('Bukan JSON');
+      
+      return await res.json();
+    } catch (err) {
+      clearTimeout(timer);
+      lastError = err;
+      if (err.name === 'AbortError') throw err;
+    }
   }
+  throw lastError || new Error('Semua server proxy sedang sibuk / down');
 }
 
 function getCached(key) {
