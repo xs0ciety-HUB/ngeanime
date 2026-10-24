@@ -2,6 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
+process.env.ANIME_API_BASE = 'https://anime-api-red-pi.vercel.app';
+process.env.IMG_HOST_ALLOW = 'otakudesu.example,example.com';
+process.env.HEALTH_TOKEN = 'secret-token';
+
 const require = createRequire(import.meta.url);
 const jsonProxy = require('../api/otakudesu/[...path].js');
 const imgProxy = require('../api/img.js');
@@ -19,9 +23,10 @@ function mockRes() {
     end(b) { this.body = b; return this; },
   };
 }
-const call = async (handler, url, query = {}) => {
+const SAME_ORIGIN = { 'sec-fetch-site': 'same-origin', host: 'hanime.test', 'x-real-ip': '203.0.113.7' };
+const call = async (handler, url, query = {}, headers = SAME_ORIGIN) => {
   const res = mockRes();
-  await handler({ method: 'GET', url, query }, res);
+  await handler({ method: 'GET', url, query, headers }, res);
   return res;
 };
 const JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(64)]);
@@ -64,6 +69,7 @@ test('json proxy: upstream 403 is retried then surfaced as 502, never cached', a
 });
 
 test('json proxy: falls through to the next upstream and reports body snippet on total failure', async () => {
+  const savedBase = process.env.ANIME_API_BASE;
   process.env.ANIME_API_BASE = 'https://a.example, https://b.example/';
   try {
     const seen = [];
@@ -75,13 +81,15 @@ test('json proxy: falls through to the next upstream and reports body snippet on
     const res = await call(jsonProxy, '/api/otakudesu/episode/fallback-fail', { path: ['episode', 'fallback-fail'] });
     assert.equal(res.statusCode, 502);
     assert.equal(res.body.detail, 'Blocked by WAF');
-    assert.equal(res.body.tried.length, 2);
-  } finally { delete process.env.ANIME_API_BASE; }
+    assert.equal(JSON.stringify(res.body).includes('a.example'), false, 'upstream host must not leak to clients');
+  } finally { process.env.ANIME_API_BASE = savedBase; }
 });
 
 test('health: reports each upstream', async () => {
   globalThis.fetch = async () => new Response('{"x":1}', { status: 403, headers: { 'content-type': 'application/json', server: 'cloudflare' } });
-  const res = await call(health, '/api/health');
+  assert.equal((await call(health, '/api/health', {})).statusCode, 404);
+  assert.equal((await call(health, '/api/health?token=wrong', { token: 'wrong' })).statusCode, 404);
+  const res = await call(health, '/api/health?token=secret-token', { token: 'secret-token' });
   assert.equal(res.body.ok, false);
   assert.equal(res.body.results[0].status, 403);
   assert.equal(res.body.results[0].server, 'cloudflare');
@@ -169,4 +177,56 @@ test('json proxy: ANIME_SOURCE switches the upstream route prefix', async () => 
     await call(jsonProxy, '/api/otakudesu/home', { path: ['home'] });
     assert.equal(seen, 'https://anime-api-red-pi.vercel.app/otakudesu/home');
   } finally { delete process.env.ANIME_SOURCE; }
+});
+
+test('guard: cross-site and header-less requests are refused, same-origin passes', async () => {
+  globalThis.fetch = async () => Response.json({ statusCode: 200, data: {} });
+  const url = '/api/otakudesu/home';
+  assert.equal((await call(jsonProxy, url, { path: ['home'] }, { 'sec-fetch-site': 'cross-site', host: 'hanime.test' })).statusCode, 403);
+  assert.equal((await call(jsonProxy, url, { path: ['home'] }, { host: 'hanime.test' })).statusCode, 403);
+  assert.equal((await call(jsonProxy, url, { path: ['home'] }, { origin: 'https://evil.example', host: 'hanime.test' })).statusCode, 403);
+  assert.equal((await call(jsonProxy, url, { path: ['home'] }, { referer: 'https://hanime.test/x', host: 'hanime.test' })).statusCode, 200);
+  assert.equal((await call(jsonProxy, url, { path: ['home'] }, { 'sec-fetch-site': 'none', host: 'hanime.test' })).statusCode, 200);
+});
+
+test('guard: per-IP rate limit answers 429 with Retry-After', async () => {
+  globalThis.fetch = async () => Response.json({ statusCode: 200, data: {} });
+  const headers = { 'sec-fetch-site': 'same-origin', host: 'hanime.test', 'x-real-ip': '198.51.100.99' };
+  let last;
+  for (let i = 0; i < 91; i++) last = await call(jsonProxy, '/api/otakudesu/home', { path: ['home'] }, headers);
+  assert.equal(last.statusCode, 429);
+  assert.ok(Number(last.headers['retry-after']) >= 1);
+  const other = await call(jsonProxy, '/api/otakudesu/home', { path: ['home'] }, { ...headers, 'x-real-ip': '198.51.100.100' });
+  assert.equal(other.statusCode, 200);
+});
+
+test('img proxy: hosts outside the allowlist are refused', async () => {
+  globalThis.fetch = async () => { throw new Error('must not be called'); };
+  assert.equal((await call(imgProxy, '/api/img', { u: 'https://evil.net/a.jpg' })).statusCode, 400);
+});
+
+test('json proxy: missing ANIME_API_BASE is a 500, not a leak', async () => {
+  const saved = process.env.ANIME_API_BASE;
+  delete process.env.ANIME_API_BASE;
+  try {
+    const res = await call(jsonProxy, '/api/otakudesu/home', { path: ['home'] });
+    assert.equal(res.statusCode, 500);
+  } finally { process.env.ANIME_API_BASE = saved; }
+});
+
+test('upstream bypass secret is sent as x-vercel-protection-bypass', async () => {
+  process.env.UPSTREAM_BYPASS_SECRET = 'bypass-123';
+  try {
+    let headers;
+    globalThis.fetch = async (u, init) => { headers = init.headers; return Response.json({ statusCode: 200, data: {} }); };
+    await call(jsonProxy, '/api/otakudesu/home', { path: ['home'] });
+    assert.equal(headers['x-vercel-protection-bypass'], 'bypass-123');
+  } finally { delete process.env.UPSTREAM_BYPASS_SECRET; }
+});
+
+test('json proxy: upstream 404 message is surfaced', async () => {
+  globalThis.fetch = async () => Response.json({ statusCode: 404, statusMessage: 'Not Found', message: 'Episode tidak ada' }, { status: 404 });
+  const res = await call(jsonProxy, '/api/otakudesu/episode/zzz', { path: ['episode', 'zzz'] });
+  assert.equal(res.statusCode, 404);
+  assert.match(res.body.error, /Episode tidak ada/);
 });
