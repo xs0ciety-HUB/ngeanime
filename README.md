@@ -37,7 +37,7 @@ Semua opsional:
 
 | Variabel | Default | Fungsi |
 |---|---|---|
-| `ANIME_API_BASE` | `https://wajik-anime-api.vercel.app` | Base URL API upstream. Boleh lebih dari satu, pisah koma; dicoba berurutan sampai ada yang berhasil |
+| `ANIME_API_BASE` | `https://anime-api-red-pi.vercel.app` | Base URL API upstream. Boleh lebih dari satu, pisah koma; dicoba berurutan sampai ada yang berhasil |
 | `IMG_HOST_ALLOW` | (kosong = semua host publik) | Daftar suffix host gambar yang diizinkan, pisah koma |
 
 ## Endpoint API (terverifikasi)
