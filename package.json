@@ -1,8 +1,12 @@
 {
-  "name": "xsociety-anime",
+  "name": "xs0cietyhub-anime",
   "version": "1.0.0",
   "private": true,
   "description": "Anime streaming platform by xs0cietyHUB",
   "author": "xs0cietyHUB/xs0ciety505",
-  "license": "MIT"
+  "license": "UNLICENSED",
+  "scripts": {
+    "dev": "npx --yes serve public -l 3000",
+    "start": "npx --yes serve public -l 3000"
+  }
 }
