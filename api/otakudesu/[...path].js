@@ -5,12 +5,13 @@
  *
  * Runtime: Vercel Node.js function (CommonJS, Node >= 18, global fetch).
  * Inputs : home | search?q= | anime/:id | episode/:id | server/:id
- * Output : upstream JSON verbatim on 200; { ok:false, error, upstreamStatus, detail, tried } otherwise.
- * Errors : 400 invalid path, 404 upstream 404, 502 every upstream failed (403/429/5xx/timeout/non-JSON).
+ * Output : upstream JSON verbatim on 200; { ok:false, error, upstreamStatus, detail } otherwise (never the upstream host).
+ * Errors : 400 invalid path, 403 cross-site, 404 upstream 404, 429 rate limit, 500 not configured, 502 every upstream failed.
  * Cache  : successful responses only (CDN s-maxage); errors are never cached.
  */
 
-const { fetchWithFallback, source } = require('../_upstream.js');
+const { bases, fetchWithFallback, source, snippet } = require('../_upstream.js');
+const { guard } = require('../_guard.js');
 
 // route -> number of :id segments required after it
 const ROUTES = new Map([
@@ -74,8 +75,14 @@ module.exports = async function handler(req, res) {
     return fail(res, 405, 'Method not allowed');
   }
 
+  if (!guard(req, res, { bucket: 'json', limit: 90 })) return;
+
   const built = buildSuffix(req);
   if (!built) return fail(res, 400, 'Path tidak valid');
+  if (bases().length === 0) {
+    console.error('[otakudesu] ANIME_API_BASE is not set');
+    return fail(res, 500, 'Konfigurasi server belum lengkap');
+  }
 
   const { response: upstream, failures } = await fetchWithFallback(built.suffix);
 
@@ -89,12 +96,16 @@ module.exports = async function handler(req, res) {
       return res.status(200).json(stale.payload);
     }
     const reason = last.status ? `Sumber menolak permintaan (HTTP ${last.status})` : 'Server sumber tidak merespons, coba lagi sebentar lagi';
-    return fail(res, 502, reason, { upstreamStatus: last.status || null, detail: last.detail || '', tried: failures });
+    return fail(res, 502, reason, { upstreamStatus: last.status || null, detail: last.detail || '' });
   }
 
   if (!upstream.ok) {
-    if (upstream.status === 404) return fail(res, 404, 'Data tidak ditemukan di sumber', { upstreamStatus: 404 });
-    return fail(res, 502, `Sumber menolak permintaan (HTTP ${upstream.status})`, { upstreamStatus: upstream.status });
+    const detail = await snippet(upstream);
+    console.error('[otakudesu] upstream status', upstream.status, built.suffix, detail);
+    if (upstream.status === 404) {
+      return fail(res, 404, `Data tidak ditemukan di sumber${detail ? ` (${detail})` : ''}`, { upstreamStatus: 404, detail });
+    }
+    return fail(res, 502, `Sumber menolak permintaan (HTTP ${upstream.status})`, { upstreamStatus: upstream.status, detail });
   }
 
   let payload;
