@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const jsonProxy = require('../api/otakudesu/[...path].js');
 const imgProxy = require('../api/img.js');
+const health = require('../api/health.js');
 
 const realFetch = globalThis.fetch;
 test.afterEach(() => { globalThis.fetch = realFetch; });
@@ -60,6 +61,30 @@ test('json proxy: upstream 403 is retried then surfaced as 502, never cached', a
   assert.equal(res.statusCode, 502);
   assert.equal(res.body.upstreamStatus, 403);
   assert.equal(res.headers['cache-control'], 'no-store');
+});
+
+test('json proxy: falls through to the next upstream and reports body snippet on total failure', async () => {
+  process.env.ANIME_API_BASE = 'https://a.example, https://b.example/';
+  try {
+    const seen = [];
+    globalThis.fetch = async (u) => { seen.push(String(u)); return String(u).startsWith('https://a.example') ? new Response('<b>Blocked</b> by WAF', { status: 403 }) : Response.json({ statusCode: 200, data: {} }); };
+    assert.equal((await call(jsonProxy, '/api/otakudesu/home', { path: ['home'] })).statusCode, 200);
+    assert.deepEqual(seen, ['https://a.example/otakudesu/home', 'https://b.example/otakudesu/home']);
+
+    globalThis.fetch = async () => new Response('<b>Blocked</b> by WAF', { status: 403 });
+    const res = await call(jsonProxy, '/api/otakudesu/home', { path: ['home'] });
+    assert.equal(res.statusCode, 502);
+    assert.equal(res.body.detail, 'Blocked by WAF');
+    assert.equal(res.body.tried.length, 2);
+  } finally { delete process.env.ANIME_API_BASE; }
+});
+
+test('health: reports each upstream', async () => {
+  globalThis.fetch = async () => new Response('{"x":1}', { status: 403, headers: { 'content-type': 'application/json', server: 'cloudflare' } });
+  const res = await call(health, '/api/health');
+  assert.equal(res.body.ok, false);
+  assert.equal(res.body.results[0].status, 403);
+  assert.equal(res.body.results[0].server, 'cloudflare');
 });
 
 test('json proxy: 403 then 200 recovers on retry', async () => {
