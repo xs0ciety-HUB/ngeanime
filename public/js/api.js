@@ -1,8 +1,7 @@
-// Klien Kitsu API (JSON:API): timeout, cache TTL, dedupe, dan antrean serial.
+// Klien Kitsu API: Timeout lebih cepat, paralel agar tidak menggantung
 const BASE = 'https://kitsu.io/api/edge';
 const TTL = 5 * 60 * 1000;
-const GAP = 300; // Kitsu lebih longgar dari Jikan
-const TIMEOUT = 10000;
+const TIMEOUT = 8000; // 8 detik batas waktu
 const MAX_CACHE = 200;
 
 export class ApiError extends Error {
@@ -11,19 +10,6 @@ export class ApiError extends Error {
 
 const cache = new Map();
 const inflight = new Map();
-let chain = Promise.resolve();
-let lastStart = 0;
-
-function enqueue(task) {
-  const run = chain.then(async () => {
-    const wait = lastStart + GAP - Date.now();
-    if (wait > 0) await new Promise(r => setTimeout(r, wait));
-    lastStart = Date.now();
-    return task();
-  });
-  chain = run.catch(() => {});
-  return run;
-}
 
 async function doFetch(url) {
   const ctl = new AbortController();
@@ -36,32 +22,17 @@ async function doFetch(url) {
         'Content-Type': 'application/vnd.api+json'
       } 
     });
-    if (res.status === 404) throw new ApiError('notfound', 'Not found');
-    if (res.status === 429) throw new ApiError('rate', 'Rate limited');
-    if (res.status >= 500) throw new ApiError('server', `HTTP ${res.status}`);
     if (!res.ok) throw new ApiError('data', `HTTP ${res.status}`);
-    let json;
-    try { json = await res.json(); } catch { throw new ApiError('data', 'Invalid JSON'); }
-    if (!json || typeof json !== 'object' || !('data' in json)) throw new ApiError('data', 'Unexpected response shape');
+    let json = await res.json();
+    if (!json || !json.data) throw new ApiError('data', 'Empty response');
     return json;
   } catch (e) {
+    if (e.name === 'AbortError') throw new ApiError('network', 'Request timeout');
     if (e instanceof ApiError) throw e;
     throw new ApiError('network', e?.message || 'Network error');
   } finally {
     clearTimeout(timer);
   }
-}
-
-function awaitFor(promise, signal) {
-  if (!signal) return promise;
-  if (signal.aborted) return Promise.reject(new ApiError('aborted', 'aborted'));
-  return new Promise((resolve, reject) => {
-    const onAbort = () => reject(new ApiError('aborted', 'aborted'));
-    signal.addEventListener('abort', onAbort, { once: true });
-    promise.then(
-      v => { signal.removeEventListener('abort', onAbort); resolve(v); },
-      e => { signal.removeEventListener('abort', onAbort); reject(e); });
-  });
 }
 
 export function get(path, params = {}, signal) {
@@ -75,9 +46,8 @@ export function get(path, params = {}, signal) {
 
   let p = inflight.get(url);
   if (!p) {
-    p = enqueue(() => doFetch(url))
+    p = doFetch(url)
       .then(json => {
-        cache.delete(url);
         cache.set(url, { json, exp: Date.now() + TTL });
         if (cache.size > MAX_CACHE) cache.delete(cache.keys().next().value);
         return json;
@@ -85,10 +55,10 @@ export function get(path, params = {}, signal) {
       .finally(() => inflight.delete(url));
     inflight.set(url, p);
   }
-  return awaitFor(p, signal);
+  return p; // Paralel langsung
 }
 
-// --- Endpoint Khusus Kitsu ---
+// --- Endpoint Kitsu ---
 export const topAnime = signal => get('/anime', { 'sort': 'popularityRank', 'page[limit]': 12 }, signal);
 export const seasonNow = signal => get('/anime', { 'filter[status]': 'current', 'sort': 'popularityRank', 'page[limit]': 12 }, signal);
 
@@ -107,7 +77,6 @@ export const searchAnime = (p, signal) => {
   return get('/anime', params, signal);
 };
 
-// Detail anime beserta relasi (kategori, episode, tautan streaming)
 export const animeFull = (id, signal) => get(`/anime/${id}`, { include: 'categories,episodes,streamingLinks' }, signal);
 
 export const genres = async signal => {

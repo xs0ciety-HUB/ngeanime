@@ -7,29 +7,108 @@ import {
 import { route, onNotFound, start } from './router.js';
 
 const main = document.getElementById('main');
-const TYPES = ['TV', 'movie', 'OVA', 'ONA', 'special', 'music']; // Kitsu menggunakan kapitalisasi ini
+const TYPES = ['TV', 'movie', 'OVA', 'ONA', 'special', 'music'];
 const STATUSES = { current: 'Sedang tayang', finished: 'Selesai', upcoming: 'Akan tayang' };
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
-// ... (Bagian ICON, TABS, SOCIALS, icon(), show(), MESSAGES, errorState, emptyState, skeletons, browseLink, favButton SAMA seperti sebelumnya) ...
+const ICON = {
+  home: ['M3 10.5L12 3l9 7.5', 'M5 9.5V21h14V9.5', 'M10 21v-6h4v6'],
+  search: ['M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14z', 'M20 20l-4.2-4.2'],
+  bookmark: ['M6 3h12v18l-6-4.5L6 21z'],
+  code: ['M8 8l-4 4 4 4', 'M16 8l4 4-4 4', 'M13.5 5l-3 14'],
+  instagram: [
+    'M7 3h10a4 4 0 0 1 4 4v10a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V7a4 4 0 0 1 4-4z',
+    'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z', 'M17.5 6.5h.01',
+  ],
+  telegram: ['M21 4L3 11l6 2.2L11.5 20l3.2-3.6 4.3 3.1z', 'M9 13.2L17 7'],
+  tiktok: ['M14 3v11.5a3.5 3.5 0 1 1-3.5-3.5', 'M14 3c.4 2.6 2.2 4.2 5 4.5'],
+};
 
-// --- MAPPING DATA KITSU KE FORMAT INTERNAL ---
+const TABS = [
+  { href: '/', label: 'Beranda', icon: 'home' },
+  { href: '/browse', label: 'Jelajah', icon: 'search' },
+  { href: '/favorites', label: 'Koleksi', icon: 'bookmark' },
+  { href: '/developer', label: 'Developer', icon: 'code' },
+];
+
+const SOCIALS = [
+  { icon: 'tiktok', label: 'TikTok', handle: '@xprimesociety', href: 'https://www.tiktok.com/@xprimesociety' },
+  { icon: 'instagram', label: 'Instagram', handle: '@xs0ciety_hub', href: 'https://www.instagram.com/xs0ciety_hub/' },
+  { icon: 'telegram', label: 'Telegram', handle: 'xs0cietyHUB', href: 'https://t.me/xs0cietyHUB' },
+];
+
+function icon(name, size = 24) {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('width', size); svg.setAttribute('height', size);
+  svg.setAttribute('fill', 'none'); svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', '1.8'); svg.setAttribute('stroke-linecap', 'round'); svg.setAttribute('stroke-linejoin', 'round');
+  svg.setAttribute('aria-hidden', 'true');
+  for (const d of ICON[name] || []) {
+    const p = document.createElementNS(SVG_NS, 'path');
+    p.setAttribute('d', d); svg.append(p);
+  }
+  return svg;
+}
+
+function show(title, ...nodes) {
+  document.title = title ? `${title} — Kakemono` : 'Kakemono — Temukan Anime';
+  main.replaceChildren(...nodes.flat().filter(Boolean));
+  document.querySelectorAll('#tabbar a').forEach(a => {
+    if (a.pathname === location.pathname) a.setAttribute('aria-current', 'page');
+    else a.removeAttribute('aria-current');
+  });
+  main.focus({ preventScroll: true });
+  scrollTo(0, 0);
+}
+
+const MESSAGES = {
+  network: 'Koneksi lambat atau terputus. Gagal memuat data.',
+  rate: 'Terlalu banyak permintaan ke server. Tunggu sebentar.',
+  server: 'Server Kitsu sedang bermasalah.',
+  data: 'Data tidak dapat dibaca.',
+};
+
+function errorState(err, retry) {
+  console.error('API Error:', err.kind, err.message);
+  return h('div', { class: 'state', role: 'alert' },
+    h('p', {}, MESSAGES[err.kind] || 'Terjadi kesalahan sistem.'),
+    retry ? h('button', { class: 'btn primary', type: 'button', onclick: retry }, 'Coba Lagi') : null);
+}
+
+const emptyState = (text, link) => h('div', { class: 'state' }, h('p', {}, text), link);
+const skeletons = n => h('ul', { class: 'grid', 'aria-hidden': 'true' }, Array.from({ length: n }, () => h('li', { class: 'sk' })));
+const browseLink = () => h('a', { class: 'btn primary', href: '/browse', 'data-link': '' }, 'Cari Anime');
+
+function favButton(item, cls = '') {
+  const saved = isFavorite(item.id);
+  const btn = h('button', { class: `fav ${cls}`.trim(), type: 'button', 'aria-pressed': String(saved) }, saved ? 'Tersimpan' : 'Simpan');
+  btn.addEventListener('click', () => {
+    const r = toggleFavorite(item);
+    const nowSaved = isFavorite(item.id);
+    btn.setAttribute('aria-pressed', String(nowSaved));
+    btn.textContent = nowSaved ? 'Tersimpan' : 'Simpan';
+    toast(!r.ok ? 'Gagal menyimpan favorit' : nowSaved ? 'Ditambahkan ke favorit' : 'Dihapus dari favorit');
+    if (location.pathname === '/favorites' && !nowSaved) renderFavorites();
+  });
+  return btn;
+}
+
 const toItem = (kitsuData) => {
   if (!kitsuData || !kitsuData.attributes) return null;
   const attr = kitsuData.attributes;
-  const posterImg = attr.posterImage?.medium || attr.posterImage?.small || attr.posterImage?.original;
+  // Ambil gambar dari Kitsu
+  const posterImg = attr.posterImage?.medium || attr.posterImage?.small || attr.posterImage?.original || null;
   
   return {
     id: parseInt(kitsuData.id, 10),
     title: String(attr.canonicalTitle || attr.titles?.en || 'Tanpa judul'),
-    image: posterImg || null,
+    image: posterImg,
     type: attr.subtype || '',
     year: attr.startDate ? parseInt(attr.startDate.split('-')[0], 10) : null,
     score: attr.averageRating ? parseFloat(attr.averageRating) : null,
   };
 };
-
-// ... (Fungsi card() dan section() sedikit disesuaikan dengan data Kitsu) ...
 
 function card(item, extra = null) {
   if (!item) return null;
@@ -49,11 +128,14 @@ function section(title, loader, signal, limit = 12) {
     body.replaceChildren(skeletons(6));
     try {
       const res = await loader(signal);
-      // Kitsu mengembalikan { data: [...] }
       const rawItems = Array.isArray(res.data) ? res.data : (res.data ? [res.data] : []);
       const items = rawItems.map(toItem).filter(Boolean).slice(0, limit);
       
-      body.replaceChildren(items.length ? h('ul', { class: 'grid' }, items.map(i => card(i))) : emptyState('Belum ada data.'));
+      if (items.length) {
+        body.replaceChildren(h('ul', { class: 'grid' }, items.map(i => card(i))));
+      } else {
+        body.replaceChildren(emptyState('Belum ada data untuk bagian ini.'));
+      }
       return items;
     } catch (e) {
       if (e.kind !== 'aborted') body.replaceChildren(errorState(e, run));
@@ -63,7 +145,6 @@ function section(title, loader, signal, limit = 12) {
   return { wrap: h('section', {}, h('h2', {}, title), body), run };
 }
 
-// --- HALAMAN BERANDA ---
 route('/', async ({ signal }) => {
   const feat = h('div', {});
   const popular = section('Paling Populer', api.topAnime, signal);
@@ -88,8 +169,21 @@ route('/', async ({ signal }) => {
   await season.run();
 });
 
-// --- HALAMAN JELAJAH ---
-// ... (Bagian readParams, browse() disesuaikan dengan endpoint Kitsu) ...
+function readParams(query) {
+  const page = parseInt(query.get('page') || '1', 10);
+  const genre = query.get('genre') || '';
+  const type = query.get('type') || '';
+  const status = query.get('status') || '';
+  return {
+    q: (query.get('q') || '').trim().slice(0, 100),
+    genre: genre, type: TYPES.includes(type) ? type : '',
+    status: Object.hasOwn(STATUSES, status) ? status : '',
+    page: Number.isInteger(page) && page >= 1 ? page : 1,
+  };
+}
+
+route('/browse|/search', ({ query, signal }) => browse(readParams(query), signal));
+
 function browse(p, navSignal) {
   const results = h('div', {});
   let searchCtl = null;
@@ -126,7 +220,6 @@ function browse(p, navSignal) {
       const res = await api.searchAnime(s, ctl.signal);
       if (ctl.signal.aborted) return;
       const items = (res.data || []).map(toItem).filter(Boolean);
-      const meta = res.meta || {};
       const nextLink = res.links?.next;
       
       if (!items.length) {
@@ -160,7 +253,59 @@ function browse(p, navSignal) {
   load(p);
 }
 
-// --- HALAMAN DETAIL ---
+function watchPanel(item) {
+  const box = h('div', { class: 'watch' });
+
+  const render = () => {
+    const rec = getWatch(item.id);
+    const ep = rec?.episode ?? 0;
+    const total = item.total;
+    const nextStatus = rec && rec.status !== 'planning' ? rec.status : 'watching';
+    const percent = total ? Math.min((ep / total) * 100, 100) : 0;
+
+    const save = (patch, msg) => {
+      const r = setWatch(item, patch);
+      if (!r.ok) toast('Gagal menyimpan progres');
+      else if (msg) toast(msg);
+      render();
+    };
+
+    const sel = h('select', { 'aria-label': 'Status tontonan' },
+      h('option', { value: '' }, 'Belum ditambahkan'),
+      Object.entries(WATCH_STATUSES).map(([v, l]) => h('option', { value: v }, l)));
+    sel.value = rec?.status ?? '';
+    sel.addEventListener('change', () => {
+      if (!sel.value) { removeWatch(item.id); toast('Dihapus dari daftar'); render(); }
+      else { save({ status: sel.value }, 'Status diperbarui'); }
+    });
+
+    const epIn = h('input', { type: 'number', min: '0', max: String(total ?? 9999), step: '1', 'aria-label': 'Episode', value: String(ep) });
+    epIn.addEventListener('change', () => {
+      const n = Math.trunc(Number(epIn.value));
+      if (!Number.isFinite(n) || n < 0) return render();
+      save({ episode: n, status: nextStatus }, 'Progres disimpan');
+    });
+
+    const minus = h('button', { class: 'btn', type: 'button', disabled: ep <= 0, onclick: () => save({ episode: ep - 1, status: nextStatus }, 'Progres disimpan') }, '−1 Eps');
+    const plus = h('button', { class: 'btn primary', type: 'button', disabled: total != null && ep >= total, onclick: () => save({ episode: ep + 1, status: nextStatus }, 'Progres disimpan') }, '+1 Eps');
+    
+    const completeBtn = total && ep < total ? h('button', { class: 'btn', type: 'button', onclick: () => save({ episode: total, status: 'completed' }, 'Ditandai Selesai') }, 'Tandai Selesai') : null;
+
+    box.replaceChildren(
+      h('h3', {}, 'Tracker Tontonan'),
+      h('div', { class: 'row' }, sel),
+      total ? h('div', { class: 'progress-container' }, h('div', { class: 'progress-bar', style: `width: ${percent}%` })) : null,
+      h('div', { class: 'row' },
+        h('span', {}, 'Episode ke-'), epIn, h('span', {}, `/ ${total ?? '?'}`),
+        minus, plus, completeBtn
+      ),
+      h('p', { class: 'prog' }, rec ? `Status: ${WATCH_STATUSES[rec.status]} • Ditonton: ${ep} episode` : 'Pilih status atau tambah episode untuk mulai mencatat.')
+    );
+  };
+  render();
+  return box;
+}
+
 route('/anime/(\\d{1,7})', ({ params, signal }) => renderAnime(Number(params[0]), signal));
 
 async function renderAnime(id, signal) {
@@ -180,7 +325,6 @@ async function renderAnime(id, signal) {
   const attr = res.data.attributes;
   const it = toItem(res.data);
   
-  // Relasi Kitsu (categories, episodes, streamingLinks)
   const included = res.included || [];
   const categories = included.filter(x => x.type === 'categories').map(x => x.attributes.title);
   const streaming = included.filter(x => x.type === 'streamingLinks').map(x => ({ name: x.attributes.url, href: x.attributes.url }));
@@ -188,7 +332,6 @@ async function renderAnime(id, signal) {
   const totalEpisodes = attr.episodeCount;
   const synopsis = attr.synopsis || 'Sinopsis belum tersedia.';
 
-  // Facts untuk Kitsu
   const facts = [
     ['Tipe', attr.subtype],
     ['Episode', totalEpisodes || '?'],
@@ -222,6 +365,45 @@ async function renderAnime(id, signal) {
   }
 }
 
-// ... (Fungsi renderFavorites, renderDeveloper, notFound, watchPanel, dll. TETAP SAMA) ...
+function progressLine(w) {
+  return h('p', { class: 'meta', style: 'color: var(--teal); font-weight: 500;' }, `${WATCH_STATUSES[w.status]} • Eps ${w.episode}${w.total ? ` / ${w.total}` : ''}`);
+}
+
+function renderFavorites() {
+  const favs = readFavorites();
+  const watch = readWatch();
+  show('Koleksi', h('h1', {}, 'Koleksi Saya'),
+    h('h2', {}, 'Favorit'),
+    favs.length ? h('ul', { class: 'grid' }, favs.map(f => card(f))) : emptyState('Belum ada favorit. Tekan "Simpan" pada anime untuk menambahkannya.', browseLink()),
+    h('h2', {}, 'Daftar Tontonan'),
+    watch.length ? h('ul', { class: 'grid' }, watch.map(w => card(w, progressLine(w)))) : emptyState('Belum ada daftar tontonan. Buka detail anime lalu atur progresnya.'));
+}
+route('/favorites', renderFavorites);
+
+function renderDeveloper() {
+  show('Developer', h('section', { class: 'dev' },
+    h('img', { class: 'avatar', src: '/img/xs0ciety.png', width: 160, height: 160, alt: 'Foto Profil xs0cietyHUB', decoding: 'async', onerror: (e) => { e.target.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160"><rect width="160" height="160" fill="%231d2040"/><circle cx="80" cy="60" r="30" fill="%2331365c"/><path d="M40 140c0-22 18-40 40-40s40 18 40 40" fill="%2331365c"/></svg>'; } }),
+    h('div', {},
+      h('h1', {}, 'xs0cietyHUB'),
+      h('p', { class: 'lede', style: 'margin: 0 auto 1.5rem;' }, 'Developer independen di balik Kakemono. Punya saran, laporan bug, atau ingin bekerja sama? Hubungi saya lewat tautan di bawah.'),
+      h('ul', { class: 'social' }, SOCIALS.map(s =>
+        h('li', {},
+          h('a', { href: s.href, target: '_blank', rel: 'noopener noreferrer' },
+            icon(s.icon),
+            h('span', {}, s.label),
+            h('span', { class: 'handle' }, s.handle))))))));
+}
+route('/developer', renderDeveloper);
+
+function notFound() {
+  show('Tidak Ditemukan', h('div', { class: 'state' },
+    h('p', { class: 'nf' }, '404'),
+    h('p', {}, 'Halaman yang kamu cari tidak ada atau sudah dipindahkan.'),
+    h('a', { class: 'btn primary', href: '/', 'data-link': '' }, 'Kembali ke Beranda')));
+}
+onNotFound(notFound);
+
+document.getElementById('tabbar').replaceChildren(...TABS.map(t =>
+  h('a', { href: t.href, 'data-link': '' }, icon(t.icon, 24), h('span', {}, t.label))));
 
 start();
