@@ -7,7 +7,7 @@
  * to see whether the 403 comes from the upstream API, its own Cloudflare layer, or a network fault.
  */
 
-const { bases, request, snippet } = require('./_upstream.js');
+const { bases, source, request, snippet } = require('./_upstream.js');
 
 module.exports = async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
@@ -15,9 +15,10 @@ module.exports = async function handler(req, res) {
     bases().map(async (base) => {
       const started = Date.now();
       try {
-        const response = await request(`${base}/otakudesu/home`);
+        const response = await request(`${base}/${source()}/home`);
         return {
           base,
+          source: source(),
           status: response.status,
           ms: Date.now() - started,
           contentType: response.headers.get('content-type'),

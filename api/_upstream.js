@@ -23,6 +23,11 @@ function bases() {
     .filter((b) => /^https:\/\//i.test(b));
 }
 
+/** Which scraper route on the upstream API to use: oploverz (default), otakudesu, kuramanime, ... */
+function source() {
+  return (process.env.ANIME_SOURCE || 'oploverz').toLowerCase().replace(/[^a-z0-9-]/g, '') || 'oploverz';
+}
+
 async function snippet(response) {
   try {
     return (await response.text()).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
@@ -59,4 +64,4 @@ async function fetchWithFallback(suffix) {
   return { response: null, failures };
 }
 
-module.exports = { bases, fetchWithFallback, request, snippet, USER_AGENT };
+module.exports = { bases, source, fetchWithFallback, request, snippet, USER_AGENT };
