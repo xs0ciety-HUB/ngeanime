@@ -1,24 +1,25 @@
-const TARGET = 'https://wajik-anime-api.vercel.app';
-
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { path } = req.query;
-  const pathStr = Array.isArray(path) ? path.join('/') : path || '';
-  
-  // Cek jika path kosong
-  if (!pathStr) {
-    return res.status(400).json({ error: 'Path tidak boleh kosong' });
+  // Parse URL request asli dari Vercel (contoh: /api/otakudesu/home?page=1)
+  const parsedUrl = new URL(req.url, 'http://localhost');
+  let apiPath = parsedUrl.pathname;
+
+  // Buang prefix '/api/' agar menyisakan 'otakudesu/home'
+  if (apiPath.startsWith('/api/')) {
+    apiPath = apiPath.slice(5);
+  } else if (apiPath.startsWith('/')) {
+    apiPath = apiPath.slice(1);
   }
 
-  // Validasi path: pastikan diawali otakudesu/
-  if (!pathStr.startsWith('otakudesu/')) {
+  // Validasi ketat: Hanya izinkan path otakudesu (mencegah open proxy)
+  if (!apiPath.startsWith('otakudesu/')) {
     return res.status(400).json({ error: 'Path tidak diizinkan oleh proxy' });
   }
 
-  const targetUrl = `${TARGET}/${pathStr}`;
+  const targetUrl = `https://wajik-anime-api.vercel.app/${apiPath}${parsedUrl.search}`;
 
   try {
     const response = await fetch(targetUrl, {
@@ -40,6 +41,8 @@ export default async function handler(req, res) {
     }
 
     const data = await response.json();
+    
+    // Simpan cache di Vercel Edge selama 60 detik
     res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate=300');
     return res.status(200).json(data);
   } catch (err) {
