@@ -5,26 +5,18 @@ let notFoundHandler = null;
 export function register(pattern, handler) {
   routes.push({ pattern: parsePattern(pattern), handler });
 }
-
-export function setNotFound(handler) {
-  notFoundHandler = handler;
-}
+export function setNotFound(handler) { notFoundHandler = handler; }
 
 function parsePattern(pattern) {
-  return pattern
-    .split('/')
-    .filter(Boolean)
-    .map((seg) => (seg.startsWith(':') ? { param: seg.slice(1) } : { literal: seg }));
+  return pattern.split('/').filter(Boolean).map((seg) => (seg.startsWith(':') ? { param: seg.slice(1) } : { literal: seg }));
 }
-
 function matchPattern(segs, pathname) {
   const parts = pathname.split('/').filter(Boolean);
   if (segs.length !== parts.length) return null;
   const params = {};
   for (let i = 0; i < segs.length; i++) {
-    const s = segs[i];
-    if (s.param) params[s.param] = decodeURIComponent(parts[i]);
-    else if (s.literal !== parts[i]) return null;
+    if (segs[i].param) params[segs[i].param] = decodeURIComponent(parts[i]);
+    else if (segs[i].literal !== parts[i]) return null;
   }
   return params;
 }
