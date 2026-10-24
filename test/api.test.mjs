@@ -31,7 +31,7 @@ test('json proxy: forwards payload with CDN cache header', async () => {
   globalThis.fetch = async (u) => { seen = String(u); return new Response(JSON.stringify({ statusCode: 200, data: { ongoing: [] } }), { status: 200, headers: { 'content-type': 'application/json' } }); };
   const res = await call(jsonProxy, '/api/otakudesu/home', { path: ['home'] });
   assert.equal(res.statusCode, 200);
-  assert.equal(seen, 'https://anime-api-red-pi.vercel.app/otakudesu/home');
+  assert.equal(seen, 'https://anime-api-red-pi.vercel.app/oploverz/home');
   assert.match(res.headers['cache-control'], /s-maxage=300/);
 });
 
@@ -39,7 +39,7 @@ test('json proxy: search forwards trimmed q only', async () => {
   let seen;
   globalThis.fetch = async (u) => { seen = String(u); return Response.json({ statusCode: 200, data: { animeList: [] } }); };
   await call(jsonProxy, '/api/otakudesu/search?q=%20naruto%20&x=1', { path: ['search'] });
-  assert.equal(seen, 'https://anime-api-red-pi.vercel.app/otakudesu/search?q=naruto');
+  assert.equal(seen, 'https://anime-api-red-pi.vercel.app/oploverz/search?q=naruto');
 });
 
 test('json proxy: rejects unknown routes, traversal, empty search', async () => {
@@ -69,7 +69,7 @@ test('json proxy: falls through to the next upstream and reports body snippet on
     const seen = [];
     globalThis.fetch = async (u) => { seen.push(String(u)); return String(u).startsWith('https://a.example') ? new Response('<b>Blocked</b> by WAF', { status: 403 }) : Response.json({ statusCode: 200, data: {} }); };
     assert.equal((await call(jsonProxy, '/api/otakudesu/home', { path: ['home'] })).statusCode, 200);
-    assert.deepEqual(seen, ['https://a.example/otakudesu/home', 'https://b.example/otakudesu/home']);
+    assert.deepEqual(seen, ['https://a.example/oploverz/home', 'https://b.example/oploverz/home']);
 
     globalThis.fetch = async () => new Response('<b>Blocked</b> by WAF', { status: 403 });
     const res = await call(jsonProxy, '/api/otakudesu/episode/fallback-fail', { path: ['episode', 'fallback-fail'] });
@@ -104,7 +104,7 @@ test('json proxy: path falls back to req.url when req.query.path is absent', asy
   let seen;
   globalThis.fetch = async (u) => { seen = String(u); return Response.json({ ok: 1 }); };
   await call(jsonProxy, '/api/otakudesu/server/a%20b', {});
-  assert.equal(seen, 'https://anime-api-red-pi.vercel.app/otakudesu/server/a%20b');
+  assert.equal(seen, 'https://anime-api-red-pi.vercel.app/oploverz/server/a%20b');
 });
 
 test('img proxy: serves jpeg, sends same-site Referer, upgrades http', async () => {
@@ -159,4 +159,14 @@ test('json proxy: serves last good payload (X-Stale) when upstream later fails',
   assert.equal(res.body.data.marker, 'fresh');
   const other = await call(jsonProxy, '/api/otakudesu/anime/never-seen', { path: ['anime', 'never-seen'] });
   assert.equal(other.statusCode, 502);
+});
+
+test('json proxy: ANIME_SOURCE switches the upstream route prefix', async () => {
+  process.env.ANIME_SOURCE = 'otakudesu';
+  try {
+    let seen;
+    globalThis.fetch = async (u) => { seen = String(u); return Response.json({ statusCode: 200, data: {} }); };
+    await call(jsonProxy, '/api/otakudesu/home', { path: ['home'] });
+    assert.equal(seen, 'https://anime-api-red-pi.vercel.app/otakudesu/home');
+  } finally { delete process.env.ANIME_SOURCE; }
 });
