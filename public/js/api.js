@@ -1,5 +1,6 @@
-// GANTI: Gunakan proxy internal, bukan langsung ke wajik-anime-api
-const BASE_URL = '/api/otakudesu';
+// KITA GUNAKAN PROXY PUBLIK (ALLORIGINS) UNTUK BYPASS CLOUDFLARE
+const PROXY_URL = 'https://api.allorigins.win/raw?url=';
+const BASE_URL = 'https://wajik-anime-api.vercel.app/otakudesu';
 const DEFAULT_TIMEOUT = 15000;
 const CACHE_TTL = 5 * 60 * 1000;
 const MAX_QUERY_LEN = 60;
@@ -18,7 +19,11 @@ function withTimeout(signal, timeout) {
 async function fetchJson(path, { timeout = DEFAULT_TIMEOUT, signal } = {}) {
   const { signal: s, cleanup } = withTimeout(signal, timeout);
   try {
-    const res = await fetch(`${BASE_URL}${path}`, {
+    // Encode URL asli sebelum dimasukkan ke proxy
+    const targetUrl = `${BASE_URL}${path}`;
+    const proxyUrl = `${PROXY_URL}${encodeURIComponent(targetUrl)}`;
+
+    const res = await fetch(proxyUrl, {
       signal: s,
       headers: { Accept: 'application/json' },
       credentials: 'omit',
@@ -116,6 +121,8 @@ export async function searchAnime(query, { signal } = {}) {
   const key = `search:${q}`;
   const cached = getCached(key);
   if (cached) return cached;
+  
+  // Perhatikan path-nya sekarang tidak perlu '/otakudesu' lagi karena sudah ada di BASE_URL
   const json = await fetchJson(`/search?q=${encodeURIComponent(q)}`, { signal });
   if (json.statusCode !== 200 || !json.data) {
     throw new Error(json.message || 'Pencarian gagal');
