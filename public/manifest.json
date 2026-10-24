@@ -1,0 +1,12 @@
+{
+  "name": "xs0cietyHUB — Anime Streaming",
+  "short_name": "xs0cietyHUB",
+  "description": "Anime streaming platform by xs0cietyHUB",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#07070c",
+  "theme_color": "#07070c",
+  "icons": [
+    { "src": "/img/xs0ciety.png", "sizes": "any", "type": "image/png" }
+  ]
+}

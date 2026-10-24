@@ -1,164 +1,91 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="id">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Kakemono — Nonton Anime Sub Indo</title>
-<meta name="description" content="Nonton anime subtitle Indonesia gratis dengan kualitas terbaik. Stream langsung tanpa ribet. Data dari Otakudesu via Wajik API.">
-<meta name="keywords" content="nonton anime, streaming anime, anime sub indo, otakudesu, wajib anime, kakemono">
-<meta name="author" content="xs0cietyHUB">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📺</text></svg>">
-<style>
-  :root {
-    --bg: #0d0f1a;
-    --surface: #161a2b;
-    --surface-light: #1f2438;
-    --border: #2a2f45;
-    --text: #e8e6f0;
-    --muted: #9a98b0;
-    --pink: #ff7aa8;
-    --teal: #5fd0c0;
-    --radius: 12px;
-    --font-serif: 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
-    --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-    --tab-height: 4.5rem;
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#07070c" />
+  <meta name="author" content="xs0cietyHUB/xs0ciety505" />
+  <meta name="description" content="Anime streaming platform by xs0cietyHUB — cari, jelajahi, dan tonton anime." />
+  <meta name="robots" content="index, follow" />
+  <title>xs0cietyHUB — Anime Streaming</title>
+  <link rel="canonical" href="https://anime-platform.vercel.app/" />
+  <link rel="manifest" href="/manifest.json" />
+  <link rel="preconnect" href="https://wajik-anime-api.vercel.app" crossorigin />
+  <link rel="stylesheet" href="/css/style.css" />
+
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="xs0cietyHUB — Anime Streaming" />
+  <meta property="og:description" content="Anime streaming platform by xs0cietyHUB" />
+  <meta property="og:image" content="/img/xs0ciety.png" />
+  <meta property="og:url" content="https://anime-platform.vercel.app/" />
+  <meta property="og:site_name" content="xs0cietyHUB" />
+
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="xs0cietyHUB — Anime Streaming" />
+  <meta name="twitter:description" content="Anime streaming platform by xs0cietyHUB" />
+  <meta name="twitter:image" content="/img/xs0ciety.png" />
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    "name": "xs0cietyHUB",
+    "url": "https://anime-platform.vercel.app/",
+    "author": { "@type": "Person", "name": "xs0cietyHUB/xs0ciety505" },
+    "description": "Anime streaming platform by xs0cietyHUB"
   }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  html { color-scheme: dark; }
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font: 1rem/1.6 var(--font-sans);
-    padding-bottom: calc(var(--tab-height) + 1rem);
-    -webkit-font-smoothing: antialiased;
-  }
-  a { color: inherit; text-decoration: none; }
-  img { display: block; max-width: 100%; }
-  button { font: inherit; cursor: pointer; border: none; }
-
-  /* Header */
-  .header {
-    position: sticky; top: 0; z-index: 50;
-    background: rgba(13, 15, 26, 0.85);
-    backdrop-filter: blur(12px);
-    border-bottom: 1px solid var(--border);
-    padding: 1rem 1.5rem;
-    display: flex; align-items: center; gap: 0.75rem;
-  }
-  .brand { display: flex; align-items: center; gap: 0.5rem; font: 700 1.3rem var(--font-serif); }
-  .brand svg { width: 24px; height: 24px; }
-
-  /* Layout */
-  main { max-width: 1200px; margin: 0 auto; padding: 2rem 1rem; min-height: 60vh; }
-  h1, h2, h3 { font-family: var(--font-serif); line-height: 1.2; margin-bottom: 0.75rem; }
-  h1 { font-size: clamp(2rem, 6vw, 3rem); }
-  h2 { font-size: 1.5rem; margin-top: 2.5rem; color: var(--text); border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
-  .lede { color: var(--muted); max-width: 60ch; margin-bottom: 1.5rem; }
-
-  /* Hero */
-  .hero { display: grid; gap: 2rem; margin-bottom: 2rem; }
-  @media (min-width: 768px) { .hero { grid-template-columns: 1.2fr 1fr; align-items: end; } }
-  .hero h1 { font-size: clamp(2rem, 5vw, 3.5rem); letter-spacing: -1px; }
-  .hero p { color: var(--muted); margin-bottom: 1.5rem; }
-
-  /* Buttons */
-  .btn {
-    display: inline-flex; align-items: center; justify-content: center;
-    padding: 0.6rem 1.2rem; border-radius: 8px; font-weight: 600;
-    background: var(--surface-light); color: var(--text);
-    border: 1px solid var(--border); transition: 0.2s;
-  }
-  .btn:hover { background: var(--border); }
-  .btn-primary { background: var(--pink); color: var(--bg); border-color: var(--pink); }
-  .btn-primary:hover { background: #ff6499; }
-
-  /* Grid & Cards */
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 1rem; list-style: none; }
-  @media (min-width: 768px) { .grid { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); } }
-  .card { position: relative; transition: transform 0.2s; }
-  .card:hover { transform: translateY(-4px); }
-  .card a { display: block; }
-  .card-poster {
-    aspect-ratio: 2 / 3; width: 100%; object-fit: cover;
-    background: var(--surface); border-radius: var(--radius);
-    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-  }
-  .card-title { font-size: 0.95rem; font-weight: 600; margin-top: 0.5rem; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-  .card-meta { font-size: 0.8rem; color: var(--muted); margin-top: 0.2rem; }
-
-  /* Skeleton */
-  .skeleton { background: linear-gradient(90deg, var(--surface) 25%, var(--surface-light) 50%, var(--surface) 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; border-radius: var(--radius); }
-  @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
-  .skeleton-poster { aspect-ratio: 2 / 3; width: 100%; }
-
-  /* Error / Empty */
-  .state { text-align: center; padding: 3rem 1rem; border: 1px dashed var(--border); border-radius: var(--radius); background: var(--surface); }
-  .state p { color: var(--muted); margin-bottom: 1rem; }
-
-  /* Anime Detail */
-  .anime-detail { display: grid; gap: 2rem; }
-  @media (min-width: 768px) { .anime-detail { grid-template-columns: 280px 1fr; } }
-  .anime-poster { width: 100%; border-radius: var(--radius); }
-  .anime-info h1 { font-size: 1.8rem; }
-  .anime-tags { display: flex; flex-wrap: wrap; gap: 0.4rem; list-style: none; margin: 0.75rem 0; }
-  .anime-tags li { font-size: 0.8rem; padding: 0.2rem 0.8rem; border-radius: 99px; background: var(--surface-light); border: 1px solid var(--border); }
-  .anime-synopsis { color: var(--muted); line-height: 1.7; margin-top: 1rem; white-space: pre-line; }
-  .anime-facts { display: grid; grid-template-columns: auto 1fr; gap: 0.4rem 1rem; margin: 1rem 0; font-size: 0.9rem; }
-  .anime-facts dt { color: var(--muted); }
-  .anime-facts dd { font-weight: 500; }
-
-  /* Video Player */
-  .player-section { margin-top: 2rem; }
-  .video-wrapper {
-    position: relative; padding-bottom: 56.25%; /* 16:9 */
-    background: #000; border-radius: var(--radius); overflow: hidden;
-    border: 1px solid var(--border);
-  }
-  .video-wrapper video, .video-wrapper iframe {
-    position: absolute; inset: 0; width: 100%; height: 100%;
-  }
-  .episode-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 0.5rem; margin-top: 1rem; }
-  .episode-btn {
-    padding: 0.5rem; border-radius: 8px; background: var(--surface);
-    border: 1px solid var(--border); text-align: center; font-size: 0.85rem;
-    transition: 0.2s;
-  }
-  .episode-btn:hover, .episode-btn.active { background: var(--pink); color: var(--bg); border-color: var(--pink); font-weight: 600; }
-
-  /* Bottom Nav */
-  .bottom-nav {
-    position: fixed; bottom: 0; left: 0; right: 0;
-    height: var(--tab-height); display: grid; grid-template-columns: repeat(3, 1fr);
-    background: rgba(13, 15, 26, 0.95); backdrop-filter: blur(12px);
-    border-top: 1px solid var(--border); z-index: 100;
-  }
-  .bottom-nav a {
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    gap: 0.2rem; font-size: 0.75rem; color: var(--muted); transition: color 0.2s;
-  }
-  .bottom-nav a.active { color: var(--pink); }
-  .bottom-nav svg { width: 24px; height: 24px; }
-
-  /* Footer */
-  .footer { text-align: center; padding: 2rem 1rem; color: var(--muted); font-size: 0.85rem; border-top: 1px solid var(--border); margin-top: 3rem; }
-</style>
+  </script>
 </head>
 <body>
-  <header class="header">
-    <a href="/" class="brand" data-link>
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M15 3v18M3 9h18M3 15h18"/></svg>
-      Kakemono
-    </a>
-  </header>
+  <div id="app">
+    <aside class="sidebar" aria-label="Navigasi utama">
+      <a href="/" class="brand" data-link>
+        <span class="brand-mark" aria-hidden="true">x0</span>
+        <span class="brand-name">xs0cietyHUB</span>
+      </a>
+      <nav class="nav-list">
+        <a href="/" data-link data-route="home" class="nav-item" aria-label="Beranda">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>
+          <span>Beranda</span>
+        </a>
+        <a href="/search" data-link data-route="search" class="nav-item" aria-label="Pencarian">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <span>Pencarian</span>
+        </a>
+        <a href="/collection" data-link data-route="collection" class="nav-item" aria-label="Koleksi">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 4h12v17l-6-4-6 4z"/></svg>
+          <span>Koleksi</span>
+        </a>
+        <a href="/developer" data-link data-route="developer" class="nav-item" aria-label="Developer Profile">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
+          <span>Developer</span>
+        </a>
+      </nav>
+    </aside>
 
-  <main id="app"></main>
+    <main id="main" class="main" tabindex="-1">
+      <div id="view" class="view"></div>
+    </main>
 
-  <footer class="footer">
-    <p>Data dari Otakudesu via Wajik API. Kakemono tidak menyimpan video.</p>
-  </footer>
-
-  <nav class="bottom-nav" id="bottom-nav"></nav>
-
+    <nav class="bottom-nav" aria-label="Navigasi utama mobile">
+      <a href="/" data-link data-route="home" class="bottom-nav-item" aria-label="Beranda">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>
+        <span>Beranda</span>
+      </a>
+      <a href="/search" data-link data-route="search" class="bottom-nav-item" aria-label="Pencarian">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <span>Pencarian</span>
+      </a>
+      <a href="/collection" data-link data-route="collection" class="bottom-nav-item" aria-label="Koleksi">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 4h12v17l-6-4-6 4z"/></svg>
+        <span>Koleksi</span>
+      </a>
+      <a href="/developer" data-link data-route="developer" class="bottom-nav-item" aria-label="Developer Profile">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
+        <span>Developer</span>
+      </a>
+    </nav>
+  </div>
   <script type="module" src="/js/app.js"></script>
 </body>
 </html>
