@@ -1,7 +1,7 @@
-// DAFTAR PROXY PUBLIK UNTUK BYPASS CLOUDFLARE (FALLBACK)
+// DAFTAR PROXY PUBLIK PENGGANTI (FALLBACK)
 const PROXIES = [
-  (url) => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
   (url) => `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(url)}`,
+  (url) => `https://cors.x2u.in/${url}`,
   (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`
 ];
 
