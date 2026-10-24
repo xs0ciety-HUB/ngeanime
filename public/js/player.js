@@ -1,45 +1,71 @@
-export async function mountPlayer(container, videoUrl) {
-  container.innerHTML = '<div class="state"><p>Memuat pemutar video...</p></div>';
+import { getEpisode, getServerUrl } from './api.js';
+import { el, clear, errorState } from './components.js';
 
-  if (!videoUrl) {
-    container.innerHTML = '<div class="state"><p>Sumber video tidak tersedia untuk episode ini.</p></div>';
-    return;
-  }
+export async function mountPlayer(container, episodeId, { onMeta } = {}) {
+  clear(container);
+  container.append(el('p', { class: 'player-status' }, 'Menyiapkan sumber video…'));
 
-  if (videoUrl.includes('.m3u8')) {
-    const { default: Hls } = await import('https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js');
-    if (Hls.isSupported()) {
-      const video = document.createElement('video');
-      video.controls = true;
-      video.style.width = '100%';
-      video.style.height = '100%';
-      container.innerHTML = '';
-      container.appendChild(video);
-      const hls = new Hls();
-      hls.loadSource(videoUrl);
-      hls.attachMedia(video);
-      hls.on(Hls.Events.ERROR, (event, data) => {
-        if (data.fatal) {
-          container.innerHTML = '<div class="state"><p>Gagal memuat stream HLS. Server mungkin tidak tersedia.</p></div>';
-        }
-      });
-    } else {
-      const video = document.createElement('video');
-      video.controls = true;
-      video.src = videoUrl;
-      container.innerHTML = '';
-      container.appendChild(video);
+  try {
+    const ep = await getEpisode(episodeId);
+    if (onMeta) onMeta(ep);
+
+    let src = ep.defaultStreamingUrl;
+    if (!src && ep.server.length > 0) {
+      try { src = await getServerUrl(ep.server[0].serverId); } catch {}
     }
-  } else {
-    const video = document.createElement('video');
-    video.controls = true;
-    video.src = videoUrl;
-    video.style.width = '100%';
-    video.style.height = '100%';
-    container.innerHTML = '';
-    container.appendChild(video);
-    video.addEventListener('error', () => {
-      container.innerHTML = '<div class="state"><p>Gagal memutar video. Format mungkin tidak didukung.</p></div>';
+    if (!src) throw new Error('API tidak menyediakan URL streaming untuk episode ini.');
+
+    const iframe = el('iframe', {
+      src,
+      title: ep.title || 'Pemutar anime',
+      allowfullscreen: true,
+      sandbox: 'allow-scripts allow-same-origin allow-presentation allow-popups',
+      referrerpolicy: 'no-referrer',
+      allow: 'autoplay; fullscreen; encrypted-media; picture-in-picture',
     });
+    clear(container);
+    container.append(iframe);
+    return { episode: ep, currentSrc: src };
+  } catch (err) {
+    clear(container);
+    container.append(
+      errorState(
+        'Tidak dapat memuat episode',
+        err.name === 'AbortError'
+          ? 'Permintaan dibatalkan.'
+          : err.message || 'Sumber video tidak tersedia.',
+        () => mountPlayer(container, episodeId, { onMeta })
+      )
+    );
+    return { error: err };
+  }
+}
+
+export async function switchServer(container, serverId) {
+  clear(container);
+  container.append(el('p', { class: 'player-status' }, 'Memuat server…'));
+  try {
+    const url = await getServerUrl(serverId);
+    const iframe = el('iframe', {
+      src: url,
+      title: 'Pemutar anime',
+      allowfullscreen: true,
+      sandbox: 'allow-scripts allow-same-origin allow-presentation allow-popups',
+      referrerpolicy: 'no-referrer',
+      allow: 'autoplay; fullscreen; encrypted-media; picture-in-picture',
+    });
+    clear(container);
+    container.append(iframe);
+    return url;
+  } catch (err) {
+    clear(container);
+    container.append(
+      errorState(
+        'Server tidak dapat dimuat',
+        err.message || 'Coba server lain.',
+        () => switchServer(container, serverId)
+      )
+    );
+    return null;
   }
 }

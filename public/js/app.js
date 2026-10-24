@@ -1,256 +1,595 @@
-import { h, poster, toast } from './components.js';
-import { route, start, navigate } from './router.js';
-import { getHome, searchAnime, getAnimeDetail, getEpisodeDetail, getServerUrl } from './api.js';
-import { mountPlayer } from './player.js';
+import { register, setNotFound, start, navigate } from './router.js';
+import { getHome, searchAnime, getAnimeDetail } from './api.js';
+import { mountPlayer, switchServer } from './player.js';
+import {
+  loadCollection,
+  addToCollection,
+  removeFromCollection,
+  isInCollection,
+} from './storage.js';
+import {
+  el,
+  clear,
+  animeCard,
+  skeletonGrid,
+  emptyState,
+  errorState,
+  sectionHead,
+} from './components.js';
 
-const NAV_ITEMS = [
-  { path: '/search', label: 'Pencarian', icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>' },
-  { path: '/', label: 'Beranda', icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>' },
-  { path: '/collection', label: 'Koleksi', icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>' },
-  { path: '/developer', label: 'Developer', icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m16 18 6-6-6-6M8 6l-6 6 6 6"/></svg>' },
-];
+const view = document.getElementById('view');
+const SITE_URL = location.origin;
 
-function initNav() {
-  const nav = document.getElementById('bottom-nav');
-  nav.innerHTML = NAV_ITEMS.map(item => `
-    <a href="${item.path}" data-link class="${location.pathname === item.path ? 'active' : ''}">
-      ${item.icon}
-      <span>${item.label}</span>
-    </a>
-  `).join('');
+function setMeta({ title, description, canonical }) {
+  document.title = title;
+  const setAttr = (sel, attr, val) => {
+    if (!val) return;
+    const node = document.querySelector(sel);
+    if (node) node.setAttribute(attr, val);
+  };
+  setAttr('meta[name="description"]', 'content', description);
+  setAttr('meta[property="og:title"]', 'content', title);
+  setAttr('meta[property="og:description"]', 'content', description);
+  setAttr('meta[property="og:url"]', 'content', canonical);
+  setAttr('meta[name="twitter:title"]', 'content', title);
+  setAttr('meta[name="twitter:description"]', 'content', description);
+  let link = document.querySelector('link[rel="canonical"]');
+  if (!link) {
+    link = document.createElement('link');
+    link.rel = 'canonical';
+    document.head.appendChild(link);
+  }
+  if (canonical) link.href = canonical;
 }
 
-function updateActiveNav() {
-  document.querySelectorAll('#bottom-nav a').forEach(a => {
-    const path = new URL(a.href).pathname;
-    if (path === location.pathname) a.classList.add('active');
+function setActiveNav(route) {
+  document.querySelectorAll('[data-route]').forEach((a) => {
+    if (a.dataset.route === route) a.classList.add('active');
     else a.classList.remove('active');
   });
 }
 
-// --- Beranda ---
-function renderHome() {
-  const app = document.getElementById('app');
-  app.innerHTML = '<div class="grid">' + Array(6).fill('<div class="skeleton skeleton-poster"></div>').join('') + '</div>';
-
-  getHome().then(({ ongoing, completed }) => {
-    const renderList = (list) => list.map(a => `
-      <li class="card">
-        <a href="/anime/${a.id}" data-link>
-          ${poster(a.poster, a.title).outerHTML}
-          <div class="card-title">${a.title}</div>
-          <div class="card-meta">${a.episodes || ''} ${a.releaseDay ? '• ' + a.releaseDay : ''}</div>
-        </a>
-      </li>
-    `).join('');
-
-    app.innerHTML = `
-      <h1>XSOCIETY ANIME</h1>
-      <p style="color:var(--text-muted);margin-bottom:1rem;">Streaming anime subtitle Indonesia.</p>
-      <h2>Sedang Tayang</h2>
-      <ul class="grid">${renderList(ongoing)}</ul>
-      <h2>Selesai</h2>
-      <ul class="grid">${renderList(completed)}</ul>
-    `;
-  }).catch(() => {
-    app.innerHTML = '<div class="state"><p>Gagal memuat data. Periksa koneksi internetmu.</p><button class="btn btn-primary" onclick="location.reload()">Coba Lagi</button></div>';
-  });
-}
-
-// --- Pencarian ---
-function renderSearch() {
-  const app = document.getElementById('app');
-  const urlParams = new URLSearchParams(location.search);
-  const initialQ = urlParams.get('q') || '';
-
-  app.innerHTML = `
-    <h1>Cari Anime</h1>
-    <form id="search-form" style="display:flex;gap:0.5rem;margin-bottom:1.5rem;">
-      <input type="search" name="q" value="${initialQ}" placeholder="Ketik judul anime..." style="flex:1;padding:0.6rem;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--text);">
-      <button type="submit" class="btn btn-primary">Cari</button>
-    </form>
-    <div id="search-results"></div>
-  `;
-
-  const form = document.getElementById('search-form');
-  const results = document.getElementById('search-results');
-
-  form.addEventListener('submit', (e) => {
-    e.preventDefault();
-    const q = form.q.value.trim();
-    if (q) history.pushState(null, '', `/search?q=${encodeURIComponent(q)}`);
-    runSearch(q);
-  });
-
-  async function runSearch(q) {
-    if (!q) {
-      results.innerHTML = '<p class="state">Masukkan kata kunci pencarian.</p>';
-      return;
-    }
-    results.innerHTML = '<div class="grid">' + Array(6).fill('<div class="skeleton skeleton-poster"></div>').join('') + '</div>';
-    try {
-      const list = await searchAnime(q);
-      if (list.length === 0) {
-        results.innerHTML = '<p class="state">Anime tidak ditemukan.</p>';
-        return;
-      }
-      results.innerHTML = `<ul class="grid">${list.map(a => `
-        <li class="card">
-          <a href="/anime/${a.id}" data-link>
-            ${poster(a.poster, a.title).outerHTML}
-            <div class="card-title">${a.title}</div>
-            <div class="card-meta">${a.score || ''} ${a.status ? '• ' + a.status : ''}</div>
-          </a>
-        </li>
-      `).join('')}</ul>`;
-    } catch {
-      results.innerHTML = '<p class="state">Pencarian gagal. Coba lagi.</p>';
-    }
-  }
-
-  if (initialQ) runSearch(initialQ);
-  else results.innerHTML = '<p class="state">Masukkan judul anime yang ingin dicari.</p>';
-}
-
-// --- Detail Anime & Streaming ---
-function renderDetail({ params }) {
-  const app = document.getElementById('app');
-  const animeId = params[0];
-  app.innerHTML = '<div class="state"><p>Memuat detail anime...</p></div>';
-
-  getAnimeDetail(animeId).then(anime => {
-    app.innerHTML = `
-      <article class="detail-layout">
-        <div>
-          ${poster(anime.poster, anime.title, 'detail-poster').outerHTML}
-        </div>
-        <div class="detail-info">
-          <h1>${anime.title}</h1>
-          <ul class="tags">${anime.genres.map(g => `<li>${g}</li>`).join('')}</ul>
-          <p style="font-size:0.85rem;color:var(--text-muted);">Status: ${anime.status} • Skor: ${anime.score}</p>
-          <p class="synopsis">${anime.synopsis}</p>
-        </div>
-      </article>
-      <section style="margin-top:2rem;">
-        <h2>Nonton Anime</h2>
-        <div class="player-wrapper" id="player-wrapper">
-          <div class="state"><p>Pilih episode di bawah untuk mulai menonton.</p></div>
-        </div>
-        <div class="episode-list" id="episode-list"></div>
-      </section>
-    `;
-
-    const epList = document.getElementById('episode-list');
-    const playerWrapper = document.getElementById('player-wrapper');
-
-    if (anime.episodes.length === 0) {
-      epList.innerHTML = '<p class="state">Belum ada episode tersedia.</p>';
-      return;
-    }
-
-    epList.innerHTML = anime.episodes.map(ep => `
-      <button class="episode-btn" data-ep-id="${ep.episodeId}">${ep.title || 'Episode'}</button>
-    `).join('');
-
-    epList.addEventListener('click', async (e) => {
-      const btn = e.target.closest('.episode-btn');
-      if (!btn) return;
-      document.querySelectorAll('.episode-btn').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-
-      const epId = btn.dataset.epId;
-      playerWrapper.innerHTML = '<div class="state"><p>Memuat video...</p></div>';
-
-      try {
-        const epDetail = await getEpisodeDetail(epId);
-        const server = epDetail.serverList?.[0]?.serverList?.[0];
-        if (!server) {
-          playerWrapper.innerHTML = '<div class="state"><p>Link video tidak ditemukan untuk episode ini.</p></div>';
-          return;
-        }
-        const videoUrl = await getServerUrl(server.serverId);
-        await mountPlayer(playerWrapper, videoUrl);
-      } catch {
-        playerWrapper.innerHTML = '<div class="state"><p>Gagal memuat video. Coba episode lain.</p></div>';
-      }
-    });
-  }).catch(() => {
-    app.innerHTML = '<div class="state"><p>Gagal memuat detail anime. Mungkin ID tidak valid.</p><a href="/" data-link class="btn btn-primary">Kembali</a></div>';
-  });
-}
-
-// --- Koleksi ---
-function renderCollection() {
-  const app = document.getElementById('app');
-  let list = [];
-  try {
-    const raw = localStorage.getItem('xsociety_collection_v1');
-    list = raw ? JSON.parse(raw) : [];
-    if (!Array.isArray(list)) list = [];
-  } catch { list = []; }
-
-  if (list.length === 0) {
-    app.innerHTML = '<div class="state"><p>Koleksi masih kosong. Tambahkan anime dari halaman detail.</p><a href="/" data-link class="btn btn-primary">Jelajahi Anime</a></div>';
+function updateJsonLd(data) {
+  const id = 'dynamic-jsonld';
+  let s = document.getElementById(id);
+  if (!data) {
+    if (s) s.remove();
     return;
   }
-  app.innerHTML = `
-    <h1>Koleksi Saya</h1>
-    <ul class="grid">
-      ${list.map(a => `
-        <li class="card">
-          <a href="/anime/${a.id}" data-link>
-            ${poster(a.poster, a.title).outerHTML}
-            <div class="card-title">${a.title}</div>
-            <div class="card-meta">${a.episodes || ''}</div>
-          </a>
-        </li>
-      `).join('')}
-    </ul>
-  `;
+  if (!s) {
+    s = document.createElement('script');
+    s.id = id;
+    s.type = 'application/ld+json';
+    document.head.appendChild(s);
+  }
+  s.textContent = JSON.stringify(data);
 }
 
-// --- Developer Profile ---
-function renderDeveloper() {
-  const app = document.getElementById('app');
-  const SOCIALS = [
-    { name: 'TikTok', handle: '@xprimesociety', url: 'https://www.tiktok.com/@xprimesociety' },
-    { name: 'Instagram', handle: '@xs0ciety-hub', url: 'https://www.instagram.com/xs0ciety-hub/' },
-    { name: 'Telegram', handle: '@xs0cietyHUB', url: 'https://t.me/xs0cietyHUB' },
-  ];
-  app.innerHTML = `
-    <div class="dev-card">
-      <img class="avatar" src="/img/xs0ciety.png" alt="Foto Profil xs0cietyHUB" loading="lazy" onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'140\\' height=\\'140\\' viewBox=\\'0 0 140 140\\'><rect width=\\'140\\' height=\\'140\\' fill=\\'%23151a23\\'/><circle cx=\\'70\\' cy=\\'50\\' r=\\'25\\' fill=\\'%232a303c\\'/><path d=\\'M35 120c0-19 16-35 35-35s35 16 35 35\\' fill=\\'%232a303c\\'/></svg>';">
-      <div>
-        <h1 style="font-size:1.5rem;">xs0cietyHUB</h1>
-        <p style="color:var(--text-muted);">xs0ciety505</p>
-      </div>
-      <ul class="social-list">
-        ${SOCIALS.map(s => `
-          <li>
-            <a href="${s.url}" target="_blank" rel="noopener noreferrer">
-              <span>${s.name}</span>
-              <span style="margin-left:auto;color:var(--text-muted);font-size:0.85rem;">${s.handle}</span>
-            </a>
-          </li>
-        `).join('')}
-      </ul>
-    </div>
-  `;
+/* ---------- HOME ---------- */
+register('/', async () => {
+  setActiveNav('home');
+  updateJsonLd(null);
+  setMeta({
+    title: 'xs0cietyHUB — Anime Streaming',
+    description: 'Jelajahi anime ongoing dan complete di xs0cietyHUB.',
+    canonical: `${SITE_URL}/`,
+  });
+  clear(view);
+  view.append(el('h1', {}, 'Beranda'));
+  const container = el('div');
+  view.append(container);
+  await loadHome(container);
+});
+
+async function loadHome(container) {
+  clear(container);
+  const frag = document.createDocumentFragment();
+  const skel1 = el('section', { class: 'section' });
+  skel1.append(sectionHead('Sedang Tayang'), el('div', { class: 'grid' }, skeletonGrid(6)));
+  const skel2 = el('section', { class: 'section' });
+  skel2.append(sectionHead('Selesai'), el('div', { class: 'grid' }, skeletonGrid(6)));
+  frag.append(skel1, skel2);
+  container.append(frag);
+
+  try {
+    const data = await getHome();
+    clear(container);
+    if (data.ongoing.length === 0 && data.complete.length === 0) {
+      container.append(
+        emptyState('Belum ada data', 'API tidak mengembalikan daftar anime saat ini.')
+      );
+      return;
+    }
+    if (data.ongoing.length > 0) {
+      const s = el('section', { class: 'section' });
+      s.append(sectionHead('Sedang Tayang'));
+      const grid = el('div', { class: 'grid' });
+      data.ongoing.forEach((a) => grid.append(animeCard(a)));
+      s.append(grid);
+      container.append(s);
+    }
+    if (data.complete.length > 0) {
+      const s = el('section', { class: 'section' });
+      s.append(sectionHead('Selesai'));
+      const grid = el('div', { class: 'grid' });
+      data.complete.forEach((a) => grid.append(animeCard(a)));
+      s.append(grid);
+      container.append(s);
+    }
+  } catch (err) {
+    clear(container);
+    container.append(
+      errorState(
+        'Gagal memuat beranda',
+        err.name === 'AbortError' ? 'Permintaan dibatalkan.' : err.message || 'Coba lagi.',
+        () => loadHome(container)
+      )
+    );
+  }
 }
 
-// --- Inisialisasi ---
-initNav();
+/* ---------- SEARCH ---------- */
+register('/search', async ({ search }) => {
+  setActiveNav('search');
+  updateJsonLd(null);
+  const initialQ = search.get('q') || '';
+  setMeta({
+    title: initialQ ? `Cari "${initialQ}" — xs0cietyHUB` : 'Pencarian — xs0cietyHUB',
+    description: 'Cari anime berdasarkan judul di xs0cietyHUB.',
+    canonical: `${SITE_URL}/search${initialQ ? `?q=${encodeURIComponent(initialQ)}` : ''}`,
+  });
+  clear(view);
+  view.append(el('h1', {}, 'Pencarian'));
 
-route('/', renderHome);
-route('/search', renderSearch);
-route('/anime/([^/]+)', renderDetail);
-route('/collection', renderCollection);
-route('/developer', renderDeveloper);
+  const bar = el('div', { class: 'search-bar' });
+  const ns = 'http://www.w3.org/2000/svg';
+  const icon = document.createElementNS(ns, 'svg');
+  icon.setAttribute('class', 'search-icon');
+  icon.setAttribute('viewBox', '0 0 24 24');
+  icon.setAttribute('fill', 'none');
+  icon.setAttribute('stroke', 'currentColor');
+  icon.setAttribute('stroke-width', '2');
+  icon.setAttribute('stroke-linecap', 'round');
+  icon.setAttribute('stroke-linejoin', 'round');
+  icon.setAttribute('aria-hidden', 'true');
+  const circle = document.createElementNS(ns, 'circle');
+  circle.setAttribute('cx', '11'); circle.setAttribute('cy', '11'); circle.setAttribute('r', '7');
+  const path = document.createElementNS(ns, 'path');
+  path.setAttribute('d', 'm20 20-3.5-3.5');
+  icon.append(circle, path);
 
-window.addEventListener('popstate', updateActiveNav);
-document.addEventListener('click', (e) => {
-  const a = e.target.closest('a[data-link]');
-  if (a) setTimeout(updateActiveNav, 50);
+  const input = el('input', {
+    type: 'search',
+    class: 'search-input',
+    placeholder: 'Cari judul anime…',
+    'aria-label': 'Cari judul anime',
+    maxlength: 60,
+    value: initialQ,
+    autocomplete: 'off',
+  });
+  bar.append(icon, input);
+
+  const results = el('div');
+  view.append(bar, results);
+
+  let controller = null;
+  let timer = null;
+  let lastQ = '';
+
+  function runSearch(q) {
+    if (q === lastQ) return;
+    lastQ = q;
+    if (controller) controller.abort();
+    controller = new AbortController();
+    clear(results);
+
+    if (!q) {
+      results.append(emptyState('Mulai mencari', 'Ketik judul anime untuk mulai mencari.'));
+      if (location.search !== '') history.replaceState({}, '', '/search');
+      return;
+    }
+
+    const url = `/search?q=${encodeURIComponent(q)}`;
+    if (location.pathname + location.search !== url) history.replaceState({}, '', url);
+
+    results.append(el('div', { class: 'grid' }, skeletonGrid(8)));
+
+    searchAnime(q, { signal: controller.signal })
+      .then((data) => {
+        if (q !== lastQ) return;
+        clear(results);
+        if (!data.animeList || data.animeList.length === 0) {
+          results.append(emptyState('Tidak ditemukan', `Tidak ada anime untuk "${q}".`));
+          return;
+        }
+        const grid = el('div', { class: 'grid' });
+        data.animeList.forEach((a) => grid.append(animeCard(a)));
+        results.append(grid);
+      })
+      .catch((err) => {
+        if (err.name === 'AbortError') return;
+        if (q !== lastQ) return;
+        clear(results);
+        results.append(
+          errorState('Pencarian gagal', err.message || 'Coba lagi.', () => {
+            lastQ = '';
+            runSearch(q);
+          })
+        );
+      });
+  }
+
+  input.addEventListener('input', () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => runSearch(input.value.trim().slice(0, 60)), 350);
+  });
+
+  if (initialQ) runSearch(initialQ);
+  else results.append(emptyState('Mulai mencari', 'Ketik judul anime untuk mulai mencari.'));
+
+  setTimeout(() => input.focus({ preventScroll: true }), 50);
+
+  return () => {
+    if (controller) controller.abort();
+    if (timer) clearTimeout(timer);
+  };
+});
+
+/* ---------- ANIME DETAIL ---------- */
+register('/anime/:id', async ({ params }) => {
+  setActiveNav('');
+  const id = params.id;
+  clear(view);
+  view.append(el('div', { class: 'state' }, el('p', {}, 'Memuat detail…')));
+
+  try {
+    const data = await getAnimeDetail(id);
+    clear(view);
+    setMeta({
+      title: `${data.title} — xs0cietyHUB`,
+      description: data.synopsis ? data.synopsis.slice(0, 160) : `Detail anime ${data.title}.`,
+      canonical: `${SITE_URL}/anime/${encodeURIComponent(id)}`,
+    });
+    if (data.poster) {
+      const og = document.querySelector('meta[property="og:image"]');
+      if (og) og.setAttribute('content', data.poster);
+    }
+    updateJsonLd({
+      '@context': 'https://schema.org',
+      '@type': 'TVSeries',
+      name: data.title,
+      image: data.poster || undefined,
+      description: data.synopsis || undefined,
+      author: { '@type': 'Person', name: 'xs0cietyHUB/xs0ciety505' },
+    });
+
+    const wrap = el('div', { class: 'detail' });
+    const left = el('div');
+    const posterBox = el('div', { class: 'detail-poster' });
+    if (data.poster) {
+      posterBox.append(
+        el('img', {
+          src: data.poster,
+          alt: `Poster ${data.title}`,
+          referrerpolicy: 'no-referrer',
+          width: 300,
+          height: 400,
+        })
+      );
+    }
+    left.append(posterBox);
+    wrap.append(left);
+
+    const right = el('div', { class: 'detail-info' });
+    right.append(el('h1', {}, data.title));
+
+    const meta = el('div', { class: 'detail-meta' });
+    ['status', 'skor', 'tipe', 'totalEpisode', 'durasi', 'studio'].forEach((k) => {
+      if (data.info[k]) meta.append(el('span', { class: 'tag' }, `${k}: ${data.info[k]}`));
+    });
+    right.append(meta);
+
+    if (data.info.genre && data.info.genre.length) {
+      const g = el('div', { class: 'detail-meta' });
+      data.info.genre.forEach((name) => g.append(el('span', { class: 'tag' }, name)));
+      right.append(g);
+    }
+
+    if (data.synopsis) right.append(el('p', { class: 'synopsis' }, data.synopsis));
+
+    const actions = el('div', { class: 'detail-actions' });
+    let inCol = isInCollection(id);
+    const favBtn = el(
+      'button',
+      { type: 'button', class: inCol ? 'btn' : 'btn btn-primary' },
+      inCol ? 'Hapus dari Koleksi' : 'Tambah ke Koleksi'
+    );
+    favBtn.addEventListener('click', () => {
+      if (isInCollection(id)) removeFromCollection(id);
+      else addToCollection({ animeId: id, title: data.title, poster: data.poster || null });
+      inCol = isInCollection(id);
+      favBtn.textContent = inCol ? 'Hapus dari Koleksi' : 'Tambah ke Koleksi';
+      favBtn.className = inCol ? 'btn' : 'btn btn-primary';
+    });
+    actions.append(favBtn);
+    right.append(actions);
+
+    if (data.episodeList.length > 0) {
+      const head = el('div', { class: 'episodes-head' }, el('h2', {}, 'Episode'));
+      const list = el('ul', { class: 'episode-list' });
+      data.episodeList.forEach((ep) => {
+        const li = el('li', { class: 'episode-item' });
+        li.append(
+          el(
+            'a',
+            { href: `/watch/${encodeURIComponent(ep.episodeId)}`, 'data-link': '' },
+            ep.title
+          )
+        );
+        list.append(li);
+      });
+      right.append(head, list);
+    } else {
+      right.append(el('p', {}, 'Belum ada episode yang tersedia dari API.'));
+    }
+
+    wrap.append(right);
+    view.append(wrap);
+  } catch (err) {
+    clear(view);
+    view.append(
+      errorState(
+        'Gagal memuat detail anime',
+        err.message || 'Coba lagi.',
+        () => navigate(`/anime/${encodeURIComponent(id)}`, { replace: true })
+      )
+    );
+  }
+});
+
+/* ---------- WATCH ---------- */
+register('/watch/:episodeId', async ({ params }) => {
+  setActiveNav('');
+  updateJsonLd(null);
+  const episodeId = params.episodeId;
+  clear(view);
+
+  const head = el(
+    'div',
+    { class: 'watch-head' },
+    el('a', { href: '/', class: 'btn btn-ghost', 'data-link': '' }, '← Kembali'),
+    el('h1', {}, 'Menonton')
+  );
+  const playerBox = el('div', { class: 'player-wrap' });
+  const nav = el('div', { class: 'watch-nav' });
+  const serverBox = el('div', { class: 'server-list' });
+  view.append(head, playerBox, nav, serverBox);
+
+  const onMeta = (ep) => {
+    setMeta({
+      title: `${ep.title || 'Episode'} — xs0cietyHUB`,
+      description: `Tonton ${ep.title || 'episode'} di xs0cietyHUB.`,
+      canonical: `${SITE_URL}/watch/${encodeURIComponent(episodeId)}`,
+    });
+    head.replaceChildren(
+      el(
+        'a',
+        {
+          href: ep.animeId ? `/anime/${encodeURIComponent(ep.animeId)}` : '/',
+          class: 'btn btn-ghost',
+          'data-link': '',
+        },
+        '← Kembali'
+      ),
+      el('h1', {}, ep.title || 'Menonton')
+    );
+    clear(nav);
+    if (ep.prevEpisode) {
+      nav.append(
+        el(
+          'a',
+          {
+            href: `/watch/${encodeURIComponent(ep.prevEpisode.episodeId)}`,
+            class: 'btn btn-ghost',
+            'data-link': '',
+          },
+          `← ${ep.prevEpisode.title || 'Sebelumnya'}`
+        )
+      );
+    }
+    if (ep.nextEpisode) {
+      nav.append(
+        el(
+          'a',
+          {
+            href: `/watch/${encodeURIComponent(ep.nextEpisode.episodeId)}`,
+            class: 'btn btn-primary',
+            'data-link': '',
+          },
+          `${ep.nextEpisode.title || 'Selanjutnya'} →`
+        )
+      );
+    }
+    clear(serverBox);
+    if (ep.server && ep.server.length > 0) {
+      serverBox.append(el('span', { class: 'tag' }, 'Server:'));
+      ep.server.forEach((s, idx) => {
+        const b = el(
+          'button',
+          { type: 'button', class: idx === 0 ? 'server-btn active' : 'server-btn' },
+          s.title || `Server ${idx + 1}`
+        );
+        b.addEventListener('click', async () => {
+          serverBox.querySelectorAll('.server-btn').forEach((x) => x.classList.remove('active'));
+          b.classList.add('active');
+          await switchServer(playerBox, s.serverId);
+        });
+        serverBox.append(b);
+      });
+    }
+  };
+
+  await mountPlayer(playerBox, episodeId, { onMeta });
+});
+
+/* ---------- COLLECTION ---------- */
+register('/collection', async () => {
+  setActiveNav('collection');
+  updateJsonLd(null);
+  setMeta({
+    title: 'Koleksi — xs0cietyHUB',
+    description: 'Koleksi anime yang Anda simpan di perangkat ini.',
+    canonical: `${SITE_URL}/collection`,
+  });
+  clear(view);
+  view.append(el('h1', {}, 'Koleksi'));
+  view.append(
+    el(
+      'p',
+      { class: 'state-msg' },
+      'Koleksi hanya tersimpan di browser ini dan tidak tersinkronisasi antarperangkat.'
+    )
+  );
+
+  const items = loadCollection();
+  if (items.length === 0) {
+    view.append(
+      emptyState('Koleksi masih kosong', 'Tambahkan anime dari halaman detail.', {
+        action: 'Jelajahi anime',
+        onAction: () => navigate('/'),
+      })
+    );
+    return;
+  }
+
+  const grid = el('div', { class: 'grid' });
+  items.forEach((item) => {
+    const wrap = el('div', { class: 'collection-card' });
+    wrap.append(animeCard(item));
+    const rm = el(
+      'button',
+      {
+        type: 'button',
+        class: 'remove-btn',
+        'aria-label': `Hapus ${item.title} dari koleksi`,
+        title: 'Hapus',
+      },
+      '×'
+    );
+    rm.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      removeFromCollection(item.animeId);
+      wrap.remove();
+      if (grid.children.length === 0) {
+        clear(view);
+        view.append(el('h1', {}, 'Koleksi'));
+        view.append(emptyState('Koleksi kosong', 'Tidak ada anime lagi.'));
+      }
+    });
+    wrap.append(rm);
+    grid.append(wrap);
+  });
+  view.append(grid);
+});
+
+/* ---------- DEVELOPER ---------- */
+register('/developer', async () => {
+  setActiveNav('developer');
+  updateJsonLd(null);
+  setMeta({
+    title: 'Developer — xs0cietyHUB',
+    description: 'Profil developer xs0cietyHUB (xs0ciety505).',
+    canonical: `${SITE_URL}/developer`,
+  });
+  clear(view);
+
+  const profile = el('section', { class: 'profile' });
+
+  const avatarImg = el('img', {
+    class: 'avatar',
+    src: '/img/xs0ciety.png',
+    alt: 'Foto profil xs0cietyHUB',
+    width: 140,
+    height: 140,
+    referrerpolicy: 'no-referrer',
+    loading: 'eager',
+    decoding: 'async',
+  });
+  const fallback = el('div', { class: 'avatar-fallback', 'aria-hidden': 'true' }, 'x0');
+  avatarImg.addEventListener('error', () => avatarImg.replaceWith(fallback), { once: true });
+  profile.append(avatarImg);
+
+  profile.append(el('h1', { class: 'profile-name' }, 'xs0cietyHUB'));
+  profile.append(el('p', { class: 'profile-alias' }, 'alias: xs0ciety505'));
+
+  const social = el('ul', { class: 'social-list' });
+  const NS = 'http://www.w3.org/2000/svg';
+
+  function socialItem(href, label, handle, pathData) {
+    const a = el('a', {
+      class: 'social-link',
+      href,
+      target: '_blank',
+      rel: 'noopener noreferrer',
+    });
+    const icon = document.createElementNS(NS, 'svg');
+    icon.setAttribute('class', 'social-icon');
+    icon.setAttribute('viewBox', '0 0 24 24');
+    icon.setAttribute('aria-hidden', 'true');
+    const p = document.createElementNS(NS, 'path');
+    p.setAttribute('fill', 'currentColor');
+    p.setAttribute('d', pathData);
+    icon.append(p);
+    const text = el('div');
+    text.append(el('div', { class: 'social-label' }, label));
+    text.append(el('div', { class: 'social-handle' }, handle));
+    a.append(icon, text);
+    return el('li', {}, a);
+  }
+
+  social.append(
+    socialItem(
+      'https://www.tiktok.com/@xprimesociety',
+      'TikTok',
+      '@xprimesociety',
+      'M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-5.2 1.74 2.89 2.89 0 0 1 2.31-4.64 2.93 2.93 0 0 1 .88.13V9.4a6.84 6.84 0 0 0-1-.05A6.33 6.33 0 0 0 5.8 20.1a6.34 6.34 0 0 0 10.86-4.43V8.79a8.16 8.16 0 0 0 4.77 1.52v-3.4a4.85 4.85 0 0 1-1.84-.22z'
+    )
+  );
+  social.append(
+    socialItem(
+      'https://www.instagram.com/xs0ciety-hub',
+      'Instagram',
+      '@xs0ciety-hub',
+      'M12 2c2.72 0 3.06.01 4.12.06 1.07.05 1.79.22 2.43.47.66.25 1.22.6 1.77 1.15.55.55.9 1.11 1.15 1.77.25.64.42 1.36.47 2.43.05 1.06.06 1.4.06 4.12s-.01 3.06-.06 4.12c-.05 1.07-.22 1.79-.47 2.43-.25.66-.6 1.22-1.15 1.77-.55.55-1.11.9-1.77 1.15-.64.25-1.36.42-2.43.47-1.06.05-1.4.06-4.12.06s-3.06-.01-4.12-.06c-1.07-.05-1.79-.22-2.43-.47a4.9 4.9 0 0 1-1.77-1.15 4.9 4.9 0 0 1-1.15-1.77c-.25-.64-.42-1.36-.47-2.43C2.01 15.06 2 14.72 2 12s.01-3.06.06-4.12c.05-1.07.22-1.79.47-2.43.25-.66.6-1.22 1.15-1.77.55-.55 1.11-.9 1.77-1.15.64-.25 1.36-.42 2.43-.47C8.94 2.01 9.28 2 12 2zm0 5a5 5 0 1 0 0 10 5 5 0 0 0 0-10zm0 8.25A3.25 3.25 0 1 1 15.25 12 3.25 3.25 0 0 1 12 15.25zM17.5 5.5a1 1 0 1 0 0 2 1 1 0 0 0 0-2z'
+    )
+  );
+  social.append(
+    socialItem(
+      'https://t.me/xs0cietyHUB',
+      'Telegram',
+      '@xs0cietyHUB',
+      'M21.94 4.3 2.84 11.68c-1.3.53-1.29 1.25-.24 1.58l4.9 1.53 1.9 5.82c.23.63.12.88.78.88.5 0 .72-.23 1-.5l2.4-2.34 4.98 3.68c.92.5 1.57.24 1.8-.85l3.26-15.35c.33-1.32-.5-1.92-1.68-1.43z'
+    )
+  );
+
+  profile.append(social);
+  profile.append(el('p', { class: 'copyright' }, '© 2026 xs0cietyHUB — xs0ciety505'));
+  view.append(profile);
+});
+
+/* ---------- NOT FOUND ---------- */
+setNotFound(async ({ pathname }) => {
+  setActiveNav('');
+  updateJsonLd(null);
+  document.title = 'Halaman tidak ditemukan — xs0cietyHUB';
+  clear(view);
+  view.append(
+    emptyState('Halaman tidak ditemukan', `URL "${pathname}" tidak tersedia.`, {
+      action: 'Ke beranda',
+      onAction: () => navigate('/'),
+    })
+  );
 });
 
 start();

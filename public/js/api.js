@@ -1,89 +1,232 @@
-const BASE = '/api/anime';
+const BASE_URL = 'https://wajik-anime-api.vercel.app';
+const DEFAULT_TIMEOUT = 12000;
 const CACHE_TTL = 5 * 60 * 1000;
+const MAX_QUERY_LEN = 60;
 const cache = new Map();
 
-export class ApiError extends Error {
-  constructor(kind, message) { super(message); this.kind = kind; }
-}
-
-async function fetchJson(path, params = {}) {
-  const qs = new URLSearchParams(params).toString();
-  const url = `${BASE}${path}${qs ? `?${qs}` : ''}`;
-  const now = Date.now();
-  if (cache.has(url) && now - cache.get(url).ts < CACHE_TTL) {
-    return cache.get(url).data;
-  }
+function withTimeout(signal, timeout) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 10000);
+  const timer = setTimeout(
+    () => controller.abort(new DOMException('Timeout', 'TimeoutError')),
+    timeout
+  );
+  const combined = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
+  return { signal: combined, cleanup: () => clearTimeout(timer) };
+}
+
+async function fetchJson(path, { timeout = DEFAULT_TIMEOUT, signal } = {}) {
+  const { signal: s, cleanup } = withTimeout(signal, timeout);
   try {
-    const res = await fetch(url, { signal: controller.signal });
-    if (!res.ok) throw new ApiError('http', `HTTP ${res.status}`);
-    const json = await res.json();
-    if (json.statusCode && json.statusCode !== 200) throw new ApiError('api', json.message || 'API Error');
-    cache.set(url, { data: json, ts: now });
-    return json;
-  } catch (e) {
-    if (e.name === 'AbortError') throw new ApiError('timeout', 'Request timeout');
-    if (e instanceof ApiError) throw e;
-    throw new ApiError('network', e.message || 'Network error');
+    const res = await fetch(`${BASE_URL}${path}`, {
+      signal: s,
+      headers: { Accept: 'application/json' },
+      credentials: 'omit',
+      mode: 'cors',
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+    const ct = (res.headers.get('content-type') || '').toLowerCase();
+    if (!ct.includes('application/json')) throw new Error('Respons bukan JSON');
+    return await res.json();
   } finally {
-    clearTimeout(timer);
+    cleanup();
   }
 }
 
-function normalizeCard(a) {
+function getCached(key) {
+  const hit = cache.get(key);
+  if (!hit) return null;
+  if (Date.now() - hit.at > CACHE_TTL) { cache.delete(key); return null; }
+  return hit.data;
+}
+
+function setCached(key, data) {
+  cache.set(key, { at: Date.now(), data });
+  if (cache.size > 100) {
+    const firstKey = cache.keys().next().value;
+    cache.delete(firstKey);
+  }
+}
+
+export function safeHttpsUrl(raw) {
+  if (typeof raw !== 'string') return null;
+  try {
+    const u = new URL(raw);
+    return u.protocol === 'https:' ? u.href : null;
+  } catch { return null; }
+}
+
+export function sanitizeText(s, max = 500) {
+  if (typeof s !== 'string') return '';
+  return s.replace(/\u0000/g, '').slice(0, max).trim();
+}
+
+function normalizeAnimeItem(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const title = sanitizeText(raw.title, 200);
+  const animeId = sanitizeText(raw.animeId, 200);
+  if (!title || !animeId) return null;
   return {
-    id: a.animeId || a.id || a.slug,
-    title: a.title || a.judul || 'Tanpa judul',
-    poster: a.poster || a.cover || null,
-    episodes: a.episodes || a.total_episode || null,
-    releaseDay: a.releaseDay || a.release_on_every || null,
-    score: a.score || a.rating || null,
-    status: a.status || null,
+    title,
+    animeId,
+    poster: safeHttpsUrl(raw.poster),
+    status: sanitizeText(raw.status, 60) || null,
+    score: sanitizeText(raw.score, 20) || null,
+    genreList: Array.isArray(raw.genreList)
+      ? raw.genreList
+          .map((g) => (g && typeof g.title === 'string' ? sanitizeText(g.title, 60) : null))
+          .filter(Boolean)
+      : [],
   };
 }
 
-export async function getHome() {
-  const res = await fetchJson('/home');
-  const ongoing = (res.data?.ongoing?.animeList || []).map(normalizeCard);
-  const completed = (res.data?.completed?.animeList || []).map(normalizeCard);
-  return { ongoing, completed };
+function normalizeAnimeList(list) {
+  if (!Array.isArray(list)) return [];
+  return list.map(normalizeAnimeItem).filter(Boolean);
 }
 
-export async function searchAnime(q) {
-  const res = await fetchJson('/search', { q });
-  return (res.data?.animeList || []).map(normalizeCard);
+function normalizeEpisodeList(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .map((ep, i) => {
+      if (!ep || typeof ep !== 'object') return null;
+      const episodeId = sanitizeText(ep.episodeId, 200);
+      if (!episodeId) return null;
+      return {
+        episodeId,
+        title: sanitizeText(ep.title, 200) || `Episode ${i + 1}`,
+        index: i + 1,
+      };
+    })
+    .filter(Boolean);
 }
 
-export async function getAnimeDetail(animeId) {
-  const res = await fetchJson(`/anime/${encodeURIComponent(animeId)}`);
-  const d = res.data || {};
+function normalizePagination(p) {
+  if (!p || typeof p !== 'object') return null;
   return {
-    id: d.animeId || animeId,
-    title: d.title || 'Tanpa judul',
-    poster: d.poster || null,
-    synopsis: d.synopsis || 'Sinopsis belum tersedia.',
-    genres: (d.genreList || []).map(g => g.name || g),
-    status: d.status || '-',
-    score: d.score || '-',
-    episodes: d.episodeList || [],
+    currentPage: Number(p.currentPage) || 1,
+    totalPages: Number(p.totalPages) || 1,
+    hasPrev: Boolean(p.prevPage),
+    hasNext: Boolean(p.nextPage),
   };
 }
 
-export async function getEpisodeDetail(episodeId) {
-  const res = await fetchJson(`/episode/${encodeURIComponent(episodeId)}`);
-  const d = res.data || {};
+export async function searchAnime(query, { signal } = {}) {
+  const q = sanitizeText(query, MAX_QUERY_LEN);
+  if (!q) return { animeList: [], pagination: null };
+  const key = `search:${q}`;
+  const cached = getCached(key);
+  if (cached) return cached;
+  const json = await fetchJson(`/otakudesu/search?q=${encodeURIComponent(q)}`, { signal });
+  if (json.statusCode !== 200 || !json.data) {
+    throw new Error(json.message || 'Pencarian gagal');
+  }
+  const result = {
+    animeList: normalizeAnimeList(json.data.animeList || []),
+    pagination: normalizePagination(json.pagination),
+  };
+  setCached(key, result);
+  return result;
+}
+
+export async function getHome({ signal } = {}) {
+  const key = 'home';
+  const cached = getCached(key);
+  if (cached) return cached;
+  const json = await fetchJson('/otakudesu/home', { signal });
+  if (json.statusCode !== 200 || !json.data) {
+    throw new Error(json.message || 'Beranda tidak tersedia');
+  }
+  const result = {
+    ongoing: normalizeAnimeList(json.data.ongoing || []),
+    complete: normalizeAnimeList(json.data.complete || []),
+  };
+  setCached(key, result);
+  return result;
+}
+
+export async function getAnimeDetail(animeId, { signal } = {}) {
+  const id = sanitizeText(animeId, 200);
+  if (!id) throw new Error('ID anime tidak valid');
+  const key = `anime:${id}`;
+  const cached = getCached(key);
+  if (cached) return cached;
+  const json = await fetchJson(`/otakudesu/anime/${encodeURIComponent(id)}`, { signal });
+  if (json.statusCode !== 200 || !json.data) {
+    throw new Error(json.message || 'Detail anime tidak tersedia');
+  }
+  const d = json.data;
+  const info = d.info || {};
+  const result = {
+    title: sanitizeText(d.title || info.judul, 200),
+    poster: safeHttpsUrl(d.poster),
+    synopsis: sanitizeText(d.synopsis, 4000),
+    info: {
+      judul: sanitizeText(info.judul, 200),
+      japanese: sanitizeText(info.japanese, 200),
+      skor: sanitizeText(info.skor, 20),
+      produser: sanitizeText(info.produser, 200),
+      tipe: sanitizeText(info.tipe, 50),
+      status: sanitizeText(info.status, 60),
+      totalEpisode: sanitizeText(info.total_episode, 20),
+      durasi: sanitizeText(info.durasi, 50),
+      tanggalRilis: sanitizeText(info.tanggal_rilis, 60),
+      studio: sanitizeText(info.studio, 100),
+      genre: Array.isArray(info.genre)
+        ? info.genre
+            .map((g) => sanitizeText(g?.name || g?.title, 60))
+            .filter(Boolean)
+        : [],
+    },
+    episodeList: normalizeEpisodeList(d.episodeList),
+  };
+  setCached(key, result);
+  return result;
+}
+
+export async function getEpisode(episodeId, { signal } = {}) {
+  const id = sanitizeText(episodeId, 200);
+  if (!id) throw new Error('ID episode tidak valid');
+  const json = await fetchJson(`/otakudesu/episode/${encodeURIComponent(id)}`, { signal });
+  if (json.statusCode !== 200 || !json.data) {
+    throw new Error(json.message || 'Episode tidak tersedia');
+  }
+  const d = json.data;
   return {
-    title: d.title || 'Episode',
-    serverList: d.server || [],
-    hasPrev: d.hasPrevEpisode || false,
-    hasNext: d.hasNextEpisode || false,
-    prev: d.prevEpisode || null,
-    next: d.nextEpisode || null,
+    title: sanitizeText(d.title, 200),
+    animeId: sanitizeText(d.animeId, 200),
+    defaultStreamingUrl: safeHttpsUrl(d.defaultStreamingUrl),
+    prevEpisode: d.prevEpisode
+      ? {
+          episodeId: sanitizeText(d.prevEpisode.episodeId, 200),
+          title: sanitizeText(d.prevEpisode.title, 200),
+        }
+      : null,
+    nextEpisode: d.nextEpisode
+      ? {
+          episodeId: sanitizeText(d.nextEpisode.episodeId, 200),
+          title: sanitizeText(d.nextEpisode.title, 200),
+        }
+      : null,
+    server: Array.isArray(d.server)
+      ? d.server
+          .map((s) => ({
+            serverId: sanitizeText(s?.serverId, 200),
+            title: sanitizeText(s?.title, 100),
+          }))
+          .filter((s) => s.serverId)
+      : [],
+    episodeList: normalizeEpisodeList(d.episodeList),
   };
 }
 
-export async function getServerUrl(serverId) {
-  const res = await fetchJson(`/server/${encodeURIComponent(serverId)}`);
-  return res.data?.url || null;
+export async function getServerUrl(serverId, { signal } = {}) {
+  const id = sanitizeText(serverId, 200);
+  if (!id) throw new Error('ID server tidak valid');
+  const json = await fetchJson(`/otakudesu/server/${encodeURIComponent(id)}`, { signal });
+  if (json.statusCode !== 200 || !json.data || typeof json.data.url !== 'string') {
+    throw new Error('URL server tidak tersedia');
+  }
+  const url = safeHttpsUrl(json.data.url);
+  if (!url) throw new Error('URL server tidak valid');
+  return url;
 }

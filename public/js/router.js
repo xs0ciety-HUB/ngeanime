@@ -1,38 +1,66 @@
 const routes = [];
 let currentCleanup = null;
+let notFoundHandler = null;
 
-export function route(pattern, handler) {
-  routes.push({ re: new RegExp(`^(?:${pattern})$`), handler });
+export function register(pattern, handler) {
+  routes.push({ pattern: parsePattern(pattern), handler });
 }
 
-export function navigate(path) {
-  history.pushState(null, '', path);
-  resolve();
+export function setNotFound(handler) {
+  notFoundHandler = handler;
 }
 
-export function resolve() {
-  if (currentCleanup) { currentCleanup(); currentCleanup = null; }
-  const path = location.pathname;
-  for (const r of routes) {
-    const m = path.match(r.re);
-    if (m) {
-      const result = r.handler({ params: m.slice(1) });
+function parsePattern(pattern) {
+  return pattern
+    .split('/')
+    .filter(Boolean)
+    .map((seg) => (seg.startsWith(':') ? { param: seg.slice(1) } : { literal: seg }));
+}
+
+function matchPattern(segs, pathname) {
+  const parts = pathname.split('/').filter(Boolean);
+  if (segs.length !== parts.length) return null;
+  const params = {};
+  for (let i = 0; i < segs.length; i++) {
+    const s = segs[i];
+    if (s.param) params[s.param] = decodeURIComponent(parts[i]);
+    else if (s.literal !== parts[i]) return null;
+  }
+  return params;
+}
+
+export function navigate(href, { replace = false } = {}) {
+  if (replace) history.replaceState({}, '', href);
+  else history.pushState({}, '', href);
+  render();
+}
+
+export async function render() {
+  const pathname = location.pathname;
+  const search = new URLSearchParams(location.search);
+  if (currentCleanup) { try { currentCleanup(); } catch {} currentCleanup = null; }
+
+  for (const route of routes) {
+    const params = matchPattern(route.pattern, pathname);
+    if (params) {
+      const result = await route.handler({ params, search, pathname });
       if (typeof result === 'function') currentCleanup = result;
       return;
     }
   }
-  document.getElementById('app').innerHTML = '<div class="state"><h1>404</h1><p>Halaman tidak ditemukan.</p><a href="/" data-link class="btn btn-primary">Kembali</a></div>';
+  if (notFoundHandler) await notFoundHandler({ pathname });
 }
 
 export function start() {
-  document.addEventListener('click', e => {
+  window.addEventListener('popstate', render);
+  document.addEventListener('click', (e) => {
     const a = e.target.closest('a[data-link]');
-    if (!a || e.defaultPrevented || e.metaKey || e.ctrlKey) return;
-    const url = new URL(a.href);
+    if (!a) return;
+    const url = new URL(a.href, location.href);
     if (url.origin !== location.origin) return;
     e.preventDefault();
+    if (url.pathname + url.search === location.pathname + location.search) return;
     navigate(url.pathname + url.search);
   });
-  window.addEventListener('popstate', resolve);
-  resolve();
+  render();
 }
