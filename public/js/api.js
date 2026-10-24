@@ -1,8 +1,7 @@
-// Klien Jikan v4: timeout, cache TTL, dedupe request sama, antrean serial (±2.5 req/s).
-// Tidak auto-retry saat 429 supaya rate limit tidak makin parah.
-const BASE = 'https://api.jikan.moe/v4';
+// Klien Kitsu API (JSON:API): timeout, cache TTL, dedupe, dan antrean serial.
+const BASE = 'https://kitsu.io/api/edge';
 const TTL = 5 * 60 * 1000;
-const GAP = 400;
+const GAP = 300; // Kitsu lebih longgar dari Jikan
 const TIMEOUT = 10000;
 const MAX_CACHE = 200;
 
@@ -30,7 +29,13 @@ async function doFetch(url) {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), TIMEOUT);
   try {
-    const res = await fetch(url, { signal: ctl.signal, headers: { Accept: 'application/json' } });
+    const res = await fetch(url, { 
+      signal: ctl.signal, 
+      headers: { 
+        'Accept': 'application/vnd.api+json',
+        'Content-Type': 'application/vnd.api+json'
+      } 
+    });
     if (res.status === 404) throw new ApiError('notfound', 'Not found');
     if (res.status === 429) throw new ApiError('rate', 'Rate limited');
     if (res.status >= 500) throw new ApiError('server', `HTTP ${res.status}`);
@@ -47,8 +52,6 @@ async function doFetch(url) {
   }
 }
 
-// Menunggu request bersama, tapi berhenti kalau pemanggil ini dibatalkan.
-// Pembatalan pemanggil TIDAK membatalkan fetch-nya, jadi pemanggil lain tidak ikut gagal.
 function awaitFor(promise, signal) {
   if (!signal) return promise;
   if (signal.aborted) return Promise.reject(new ApiError('aborted', 'aborted'));
@@ -85,11 +88,29 @@ export function get(path, params = {}, signal) {
   return awaitFor(p, signal);
 }
 
-const arr = x => (Array.isArray(x) ? x : []);
-export const topAnime = signal => get('/top/anime', { filter: 'bypopularity', limit: 12, sfw: true }, signal);
-export const seasonNow = signal => get('/seasons/now', { limit: 12, sfw: true }, signal);
-export const searchAnime = (p, signal) => get('/anime', { limit: 24, sfw: true, ...p }, signal);
-export const animeFull = (id, signal) => get(`/anime/${id}/full`, {}, signal);
-export const recommendations = async (id, signal) => arr((await get(`/anime/${id}/recommendations`, {}, signal)).data);
-export const streaming = async (id, signal) => arr((await get(`/anime/${id}/streaming`, {}, signal)).data);
-export const genres = async signal => arr((await get('/genres/anime', {}, signal)).data);
+// --- Endpoint Khusus Kitsu ---
+export const topAnime = signal => get('/anime', { 'sort': 'popularityRank', 'page[limit]': 12 }, signal);
+export const seasonNow = signal => get('/anime', { 'filter[status]': 'current', 'sort': 'popularityRank', 'page[limit]': 12 }, signal);
+
+export const searchAnime = (p, signal) => {
+  const params = {
+    'page[limit]': 24,
+    'page[offset]': (p.page - 1) * 24,
+  };
+  if (p.q) params['filter[text]'] = p.q;
+  if (p.genre) params['filter[categories]'] = p.genre;
+  if (p.type) params['filter[subtype]'] = p.type;
+  if (p.status) params['filter[status]'] = p.status === 'airing' ? 'current' : p.status === 'complete' ? 'finished' : 'upcoming';
+  
+  if (!p.q) params['sort'] = 'popularityRank';
+  
+  return get('/anime', params, signal);
+};
+
+// Detail anime beserta relasi (kategori, episode, tautan streaming)
+export const animeFull = (id, signal) => get(`/anime/${id}`, { include: 'categories,episodes,streamingLinks' }, signal);
+
+export const genres = async signal => {
+  const res = await get('/categories', { 'page[limit]': 100 }, signal);
+  return res.data || [];
+};
