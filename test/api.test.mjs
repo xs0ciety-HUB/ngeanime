@@ -72,7 +72,7 @@ test('json proxy: falls through to the next upstream and reports body snippet on
     assert.deepEqual(seen, ['https://a.example/otakudesu/home', 'https://b.example/otakudesu/home']);
 
     globalThis.fetch = async () => new Response('<b>Blocked</b> by WAF', { status: 403 });
-    const res = await call(jsonProxy, '/api/otakudesu/home', { path: ['home'] });
+    const res = await call(jsonProxy, '/api/otakudesu/episode/fallback-fail', { path: ['episode', 'fallback-fail'] });
     assert.equal(res.statusCode, 502);
     assert.equal(res.body.detail, 'Blocked by WAF');
     assert.equal(res.body.tried.length, 2);
@@ -147,4 +147,16 @@ test('img proxy: size cap and upstream 403/404 mapping', async () => {
   assert.equal((await call(imgProxy, '/api/img', { u: 'https://cdn.example.com/a.jpg' })).statusCode, 502);
   globalThis.fetch = async () => new Response('', { status: 404 });
   assert.equal((await call(imgProxy, '/api/img', { u: 'https://cdn.example.com/a.jpg' })).statusCode, 404);
+});
+
+test('json proxy: serves last good payload (X-Stale) when upstream later fails', async () => {
+  globalThis.fetch = async () => Response.json({ statusCode: 200, data: { marker: 'fresh' } });
+  assert.equal((await call(jsonProxy, '/api/otakudesu/anime/stale-1', { path: ['anime', 'stale-1'] })).statusCode, 200);
+  globalThis.fetch = async () => Response.json({ statusCode: 403, data: null }, { status: 403 });
+  const res = await call(jsonProxy, '/api/otakudesu/anime/stale-1', { path: ['anime', 'stale-1'] });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.headers['x-stale'], '1');
+  assert.equal(res.body.data.marker, 'fresh');
+  const other = await call(jsonProxy, '/api/otakudesu/anime/never-seen', { path: ['anime', 'never-seen'] });
+  assert.equal(other.statusCode, 502);
 });
