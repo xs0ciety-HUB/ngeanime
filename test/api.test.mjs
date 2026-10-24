@@ -31,7 +31,7 @@ test('json proxy: forwards payload with CDN cache header', async () => {
   globalThis.fetch = async (u) => { seen = String(u); return new Response(JSON.stringify({ statusCode: 200, data: { ongoing: [] } }), { status: 200, headers: { 'content-type': 'application/json' } }); };
   const res = await call(jsonProxy, '/api/otakudesu/home', { path: ['home'] });
   assert.equal(res.statusCode, 200);
-  assert.equal(seen, 'https://wajik-anime-api.vercel.app/otakudesu/home');
+  assert.equal(seen, 'https://anime-api-red-pi.vercel.app/otakudesu/home');
   assert.match(res.headers['cache-control'], /s-maxage=300/);
 });
 
@@ -39,7 +39,7 @@ test('json proxy: search forwards trimmed q only', async () => {
   let seen;
   globalThis.fetch = async (u) => { seen = String(u); return Response.json({ statusCode: 200, data: { animeList: [] } }); };
   await call(jsonProxy, '/api/otakudesu/search?q=%20naruto%20&x=1', { path: ['search'] });
-  assert.equal(seen, 'https://wajik-anime-api.vercel.app/otakudesu/search?q=naruto');
+  assert.equal(seen, 'https://anime-api-red-pi.vercel.app/otakudesu/search?q=naruto');
 });
 
 test('json proxy: rejects unknown routes, traversal, empty search', async () => {
@@ -104,7 +104,7 @@ test('json proxy: path falls back to req.url when req.query.path is absent', asy
   let seen;
   globalThis.fetch = async (u) => { seen = String(u); return Response.json({ ok: 1 }); };
   await call(jsonProxy, '/api/otakudesu/server/a%20b', {});
-  assert.equal(seen, 'https://wajik-anime-api.vercel.app/otakudesu/server/a%20b');
+  assert.equal(seen, 'https://anime-api-red-pi.vercel.app/otakudesu/server/a%20b');
 });
 
 test('img proxy: serves jpeg, sends same-site Referer, upgrades http', async () => {
