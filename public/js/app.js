@@ -7,22 +7,17 @@ import {
 import { route, onNotFound, start } from './router.js';
 
 const main = document.getElementById('main');
-const TYPES = ['tv', 'movie', 'ova', 'special', 'ona', 'music'];
-const STATUSES = { airing: 'Sedang tayang', complete: 'Selesai', upcoming: 'Akan tayang' };
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
-// --- IKON SVG MURNI (Konsisten, Tanpa Emoji) ---
 const ICON = {
   home: ['M3 10.5L12 3l9 7.5', 'M5 9.5V21h14V9.5', 'M10 21v-6h4v6'],
   search: ['M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14z', 'M20 20l-4.2-4.2'],
   bookmark: ['M6 3h12v18l-6-4.5L6 21z'],
   code: ['M8 8l-4 4 4 4', 'M16 8l4 4-4 4', 'M13.5 5l-3 14'],
-  instagram: [
-    'M7 3h10a4 4 0 0 1 4 4v10a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V7a4 4 0 0 1 4-4z',
-    'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z', 'M17.5 6.5h.01',
-  ],
+  instagram: ['M7 3h10a4 4 0 0 1 4 4v10a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V7a4 4 0 0 1 4-4z', 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z', 'M17.5 6.5h.01'],
   telegram: ['M21 4L3 11l6 2.2L11.5 20l3.2-3.6 4.3 3.1z', 'M9 13.2L17 7'],
   tiktok: ['M14 3v11.5a3.5 3.5 0 1 1-3.5-3.5', 'M14 3c.4 2.6 2.2 4.2 5 4.5'],
+  play: ['M5 3l14 9-14 9V3z'],
 };
 
 const TABS = [
@@ -53,7 +48,7 @@ function icon(name, size = 24) {
 }
 
 function show(title, ...nodes) {
-  document.title = title ? `${title} — Kakemono` : 'Kakemono — Temukan Anime';
+  document.title = title ? `${title} — Kakemono` : 'Kakemono — Nonton Anime';
   main.replaceChildren(...nodes.flat().filter(Boolean));
   document.querySelectorAll('#tabbar a').forEach(a => {
     if (a.pathname === location.pathname) a.setAttribute('aria-current', 'page');
@@ -65,15 +60,14 @@ function show(title, ...nodes) {
 
 const MESSAGES = {
   network: 'Koneksi terputus. Periksa internetmu lalu coba lagi.',
-  rate: 'Terlalu banyak permintaan ke Jikan. Tunggu sekitar satu menit, lalu coba lagi.',
-  server: 'Server data anime sedang bermasalah. Coba lagi sebentar lagi.',
-  data: 'Data dari server tidak bisa dibaca. Coba lagi nanti.',
+  rate: 'Terlalu banyak permintaan. Tunggu sebentar.',
+  server: 'Server anime sedang bermasalah.',
+  data: 'Data tidak dapat dibaca.',
 };
 
 function errorState(err, retry) {
-  console.error('Load failed:', err.kind || 'app', err.message);
   return h('div', { class: 'state', role: 'alert' },
-    h('p', {}, MESSAGES[err.kind] || 'Terjadi kesalahan. Muat ulang halaman.'),
+    h('p', {}, MESSAGES[err.kind] || 'Terjadi kesalahan sistem.'),
     retry ? h('button', { class: 'btn primary', type: 'button', onclick: retry }, 'Coba Lagi') : null);
 }
 
@@ -89,22 +83,22 @@ function favButton(item, cls = '') {
     const nowSaved = isFavorite(item.id);
     btn.setAttribute('aria-pressed', String(nowSaved));
     btn.textContent = nowSaved ? 'Tersimpan' : 'Simpan';
-    toast(!r.ok ? 'Gagal menyimpan favorit' : nowSaved ? 'Ditambahkan ke favorit' : 'Dihapus dari favorit');
+    toast(!r.ok ? 'Gagal menyimpan' : nowSaved ? 'Ditambahkan ke favorit' : 'Dihapus dari favorit');
     if (location.pathname === '/favorites' && !nowSaved) renderFavorites();
   });
   return btn;
 }
 
-// --- MAPPING DATA JIKAN (MAL) KE FORMAT INTERNAL ---
-const toItem = a => ({
-  id: Number.isInteger(a?.mal_id) ? a.mal_id : null,
-  title: String(a?.title_english || a?.title || 'Tanpa judul'),
-  image: a?.images?.webp?.image_url ?? a?.images?.jpg?.image_url ?? null,
-  type: typeof a?.type === 'string' ? a.type : '',
-  year: Number.isInteger(a?.year) ? a.year : null,
-  score: typeof a?.score === 'number' ? a.score : null,
+// Mapping data dari Wajik API
+const toItem = (a) => ({
+  id: a.animeId || a.id,
+  title: a.title || 'Tanpa judul',
+  image: a.poster || null,
+  type: a.type || '',
+  year: a.year || null,
+  score: a.score || null,
+  episodes: a.episodes || null,
 });
-const toItems = list => (Array.isArray(list) ? list : []).map(toItem).filter(i => i.id);
 
 function card(item, extra = null) {
   if (!item) return null;
@@ -113,288 +107,203 @@ function card(item, extra = null) {
     h('a', { href: `/anime/${item.id}`, 'data-link': '' },
       poster(item.title, item.image),
       h('h3', {}, item.title),
-      h('div', { class: 'meta' }, sub, item.score ? [' • ', h('span', { class: 'score' }, item.score.toFixed(1))] : null)),
+      h('div', { class: 'meta' }, sub, item.score ? [' • ', h('span', { class: 'score' }, item.score)] : null)),
     extra,
     favButton(item));
 }
 
-function section(title, loader, signal, limit = 12) {
-  const body = h('div', {}, skeletons(6));
-  const run = async () => {
-    body.replaceChildren(skeletons(6));
-    try {
-      const items = toItems((await loader(signal)).data).slice(0, limit);
-      body.replaceChildren(items.length ? h('ul', { class: 'grid' }, items.map(i => card(i))) : emptyState('Belum ada data untuk bagian ini.'));
-      return items;
-    } catch (e) {
-      if (e.kind !== 'aborted') body.replaceChildren(errorState(e, run));
-      return [];
-    }
-  };
-  return { wrap: h('section', {}, h('h2', {}, title), body), run };
-}
-
-// --- HALAMAN BERANDA ---
+// --- BERANDA ---
 route('/', async ({ signal }) => {
-  const feat = h('div', {});
-  const popular = section('Paling Populer', api.topAnime, signal);
-  const season = section('Tayang Musim Ini', api.seasonNow, signal);
+  const ongoingBody = h('div', {}, skeletons(6));
+  const completedBody = h('div', {}, skeletons(6));
   
   show('', h('div', { class: 'hero' },
     h('div', {},
-      h('h1', {}, 'Temukan anime berikutnya.'),
-      h('p', { class: 'lede' }, 'Cari judul, jelajahi genre, dan catat progres tontonanmu dengan mudah.'),
+      h('h1', {}, 'Nonton anime subtitle Indonesia.'),
+      h('p', { class: 'lede' }, 'Streaming anime tanpa ribet. Catat progres tontonanmu langsung di browser.'),
       h('a', { class: 'btn primary', href: '/browse', 'data-link': '' }, 'Mulai Jelajah')),
-    feat),
-    popular.wrap, season.wrap);
+    h('div', {})),
+    h('section', {}, h('h2', {}, 'Sedang Tayang'), ongoingBody),
+    h('section', {}, h('h2', {}, 'Selesai Tayang'), completedBody));
 
-  const items = await popular.run();
-  if (items[0]) {
-    const f = items[0];
-    feat.replaceChildren(h('a', { class: 'feat', href: `/anime/${f.id}`, 'data-link': '' },
-      poster(f.title, f.image, true),
-      h('div', {}, h('h3', {}, f.title),
-        h('p', {}, `Paling populer saat ini${f.type ? ` • ${f.type.toUpperCase()}` : ''}.`))));
+  try {
+    const res = await api.getHome();
+    const ongoing = (res.data?.ongoing?.animeList || []).map(toItem);
+    const completed = (res.data?.completed?.animeList || []).map(toItem);
+    
+    ongoingBody.replaceChildren(ongoing.length ? h('ul', { class: 'grid' }, ongoing.map(i => card(i))) : emptyState('Belum ada data.'));
+    completedBody.replaceChildren(completed.length ? h('ul', { class: 'grid' }, completed.map(i => card(i))) : emptyState('Belum ada data.'));
+  } catch (e) {
+    ongoingBody.replaceChildren(errorState(e, () => location.reload()));
+    completedBody.replaceChildren(errorState(e, () => location.reload()));
   }
-  await season.run();
 });
 
-// --- HALAMAN JELAJAH ---
-function readParams(query) {
-  const page = parseInt(query.get('page') || '1', 10);
-  const genre = query.get('genre') || '';
-  const type = query.get('type') || '';
-  const status = query.get('status') || '';
-  return {
-    q: (query.get('q') || '').trim().slice(0, 100),
-    genre: /^\d{1,4}$/.test(genre) ? genre : '',
-    type: TYPES.includes(type) ? type : '',
-    status: Object.hasOwn(STATUSES, status) ? status : '',
-    page: Number.isInteger(page) && page >= 1 ? page : 1,
-  };
-}
-
-route('/browse|/search', ({ query, signal }) => browse(readParams(query), signal));
-
-function browse(p, navSignal) {
+// --- JELAJAH ---
+route('/browse', ({ query }) => {
+  const q = query.get('q') || '';
   const results = h('div', {});
-  let searchCtl = null;
-  let timer = null;
-
-  const q = h('input', { type: 'search', name: 'q', maxlength: 100, placeholder: 'Ketik judul anime...', value: p.q });
-  const genre = h('select', { 'aria-label': 'Genre' }, h('option', { value: '' }, 'Semua Genre'));
-  const type = h('select', { 'aria-label': 'Tipe' }, h('option', { value: '' }, 'Semua Tipe'), TYPES.map(t => h('option', { value: t }, t.toUpperCase())));
-  const status = h('select', { 'aria-label': 'Status' }, h('option', { value: '' }, 'Semua Status'), Object.entries(STATUSES).map(([v, l]) => h('option', { value: v }, l)));
+  const input = h('input', { type: 'search', placeholder: 'Cari judul anime...', value: q });
   
-  type.value = p.type;
-  status.value = p.status;
-
-  const form = h('form', { class: 'bar', role: 'search', onsubmit: e => { e.preventDefault(); apply(1); } }, q, genre, type, status);
-  const current = () => ({ q: q.value.trim().slice(0, 100), genre: genre.value, type: type.value, status: status.value });
-
-  function apply(page) {
-    clearTimeout(timer);
-    const s = current();
-    const usp = new URLSearchParams();
-    for (const [k, v] of Object.entries(s)) if (v) usp.set(k, v);
-    if (page > 1) usp.set('page', String(page));
-    const qs = usp.toString();
-    history.replaceState(null, '', `/browse${qs ? `?${qs}` : ''}`);
-    load({ ...s, page });
-  }
-
-  async function load(s) {
-    searchCtl?.abort();
-    const ctl = new AbortController();
-    searchCtl = ctl;
+  const form = h('form', { class: 'bar', onsubmit: e => { e.preventDefault(); history.replaceState(null, '', `/browse?q=${encodeURIComponent(input.value)}`); load(input.value); } }, input);
+  
+  async function load(query) {
     results.replaceChildren(skeletons(8));
     try {
-      const res = await api.searchAnime({ q: s.q, genres: s.genre, type: s.type, status: s.status, page: s.page, order_by: s.q ? undefined : 'popularity' }, ctl.signal);
-      if (ctl.signal.aborted) return;
-      const items = toItems(res.data);
-      const pg = res.pagination || {};
-      if (!items.length) {
-        results.replaceChildren(emptyState('Tidak ada anime yang cocok dengan pencarianmu.', 
-          h('button', { class: 'btn', type: 'button', onclick: () => { q.value = ''; genre.value = ''; type.value = ''; status.value = ''; apply(1); } }, 'Reset Filter')));
-        return;
-      }
-      results.replaceChildren(
-        h('ul', { class: 'grid' }, items.map(i => card(i))),
-        h('nav', { class: 'pager', 'aria-label': 'Halaman' },
-          h('button', { class: 'btn', type: 'button', disabled: s.page <= 1, onclick: () => apply(s.page - 1) }, 'Sebelumnya'),
-          h('span', {}, `Hal ${s.page}${pg.last_visible_page ? ` / ${pg.last_visible_page}` : ''}`),
-          h('button', { class: 'btn', type: 'button', disabled: !pg.has_next_page, onclick: () => apply(s.page + 1) }, 'Berikutnya')));
+      const res = await api.searchAnime(query);
+      const items = (res.data?.animeList || []).map(toItem);
+      results.replaceChildren(items.length ? h('ul', { class: 'grid' }, items.map(i => card(i))) : emptyState('Anime tidak ditemukan.'));
     } catch (e) {
-      if (ctl.signal.aborted || e.kind === 'aborted') return;
-      results.replaceChildren(errorState(e, () => load(s)));
+      results.replaceChildren(errorState(e, () => load(query)));
     }
   }
 
-  q.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => apply(1), 500); });
-  [genre, type, status].forEach(el => el.addEventListener('change', () => apply(1)));
-  navSignal.addEventListener('abort', () => { clearTimeout(timer); searchCtl?.abort(); }, { once: true });
-
   show('Jelajah', h('h1', {}, 'Jelajah Anime'), form, results);
+  if (q) load(q); else results.replaceChildren(emptyState('Ketik judul untuk mencari anime.'));
+});
 
-  api.genres(navSignal).then(list => {
-    list.filter(g => Number.isInteger(g.mal_id) && typeof g.name === 'string').forEach(g => genre.append(h('option', { value: g.mal_id }, g.name)));
-    genre.value = p.genre;
-  }).catch(e => { if (e.kind !== 'aborted') console.warn('Genre gagal dimuat'); });
+// --- DETAIL ANIME ---
+route('/anime/([^/]+)', async ({ params, signal }) => {
+  show('Memuat...', h('p', { class: 'lede' }, 'Memuat detail anime...'));
+  try {
+    const res = await api.getAnimeDetail(params[0]);
+    const details = res.data.details;
+    const it = toItem(details);
+    const episodes = details.episodeList || [];
+    
+    const info = h('div', {},
+      h('h1', {}, it.title),
+      h('ul', { class: 'tags' }, (details.genreList || []).map(g => h('li', {}, g.title))),
+      h('dl', { class: 'facts' },
+        h('dt', {}, 'Tipe'), h('dd', {}, details.type || '-'),
+        h('dt', {}, 'Episode'), h('dd', {}, details.episodes || '-'),
+        h('dt', {}, 'Status'), h('dd', {}, details.status || '-'),
+        h('dt', {}, 'Skor'), h('dd', {}, details.score || '-'),
+        h('dt', {}, 'Studio'), h('dd', {}, details.studios || '-')),
+      h('h2', {}, 'Sinopsis'),
+      h('p', { class: 'syn' }, details.synopsis || 'Sinopsis belum tersedia.'),
+      h('h2', {}, 'Daftar Episode'),
+      h('div', { class: 'episode-list' }, episodes.map(ep => 
+        h('a', { href: `/watch/${ep.episodeId}`, 'data-link': '' }, ep.title)
+      ))
+    );
 
-  load(p);
-}
+    show(it.title, h('article', { class: 'detail' },
+      h('div', { class: 'side' }, poster(it.title, details.poster, true), favButton(it, 'inline')),
+      info));
+  } catch (e) {
+    show('Gagal', errorState(e, () => location.reload()));
+  }
+});
 
-// --- FITUR TRACKER NONTON (Bukan Gimmick) ---
-function watchPanel(item) {
-  const box = h('div', { class: 'watch' });
+// --- WATCH PAGE (Pemutar Video) ---
+route('/watch/([^/]+)', async ({ params, signal }) => {
+  show('Memuat Pemutar...', h('p', { class: 'lede' }, 'Menyiapkan video...'));
+  try {
+    const res = await api.getEpisodeDetail(params[0]);
+    const ep = res.data.details;
+    
+    const videoContainer = h('div', { class: 'video-container' });
+    const serverList = h('div', { class: 'server-list' });
 
-  const render = () => {
-    const rec = getWatch(item.id);
-    const ep = rec?.episode ?? 0;
-    const total = item.total;
-    const nextStatus = rec && rec.status !== 'planning' ? rec.status : 'watching';
-    const percent = total ? Math.min((ep / total) * 100, 100) : 0;
-
-    const save = (patch, msg) => {
-      const r = setWatch(item, patch);
-      if (!r.ok) toast('Gagal menyimpan progres');
-      else if (msg) toast(msg);
-      render();
+    // Fungsi untuk memuat video dari server
+    const loadServer = async (serverId, btn) => {
+      serverList.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      videoContainer.replaceChildren(h('p', { style: 'color: white; text-align: center; padding-top: 20%;' }, 'Memuat video...'));
+      
+      try {
+        const serverRes = await api.getServerDetail(serverId);
+        const url = serverRes.data.details.url;
+        
+        // Jika URL berupa iframe (mengandung <iframe), kita ekstrak src-nya
+        if (url.includes('<iframe')) {
+          const match = url.match(/src="([^"]+)"/);
+          const src = match ? match[1] : url;
+          videoContainer.replaceChildren(h('iframe', { src, allowfullscreen: true, frameborder: '0' }));
+        } else {
+          // Jika URL langsung (mp4/m3u8), gunakan tag video
+          videoContainer.replaceChildren(h('video', { src: url, controls: true, autoplay: true, playsinline: true }));
+        }
+      } catch (e) {
+        videoContainer.replaceChildren(h('p', { style: 'color: red; text-align: center; padding-top: 20%;' }, 'Gagal memuat server ini. Coba server lain.'));
+      }
     };
 
-    const sel = h('select', { 'aria-label': 'Status tontonan' },
-      h('option', { value: '' }, 'Belum ditambahkan'),
-      Object.entries(WATCH_STATUSES).map(([v, l]) => h('option', { value: v }, l)));
-    sel.value = rec?.status ?? '';
-    sel.addEventListener('change', () => {
-      if (!sel.value) { removeWatch(item.id); toast('Dihapus dari daftar'); render(); }
-      else { save({ status: sel.value }, 'Status diperbarui'); }
-    });
+    // Render daftar server
+    if (ep.server && ep.server.qualityList) {
+      ep.server.qualityList.forEach(quality => {
+        quality.serverList.forEach(server => {
+          const btn = h('button', { type: 'button' }, server.title);
+          btn.addEventListener('click', () => loadServer(server.serverId, btn));
+          serverList.append(btn);
+        });
+      });
+    }
 
-    const epIn = h('input', { type: 'number', min: '0', max: String(total ?? 9999), step: '1', 'aria-label': 'Episode', value: String(ep) });
-    epIn.addEventListener('change', () => {
-      const n = Math.trunc(Number(epIn.value));
-      if (!Number.isFinite(n) || n < 0) return render();
-      save({ episode: n, status: nextStatus }, 'Progres disimpan');
-    });
+    // Muat default streaming URL jika ada
+    if (ep.defaultStreamingUrl) {
+      const match = ep.defaultStreamingUrl.match(/src="([^"]+)"/);
+      const src = match ? match[1] : ep.defaultStreamingUrl;
+      videoContainer.replaceChildren(h('iframe', { src, allowfullscreen: true, frameborder: '0' }));
+    } else if (serverList.children.length > 0) {
+      // Jika tidak ada default, klik server pertama
+      serverList.children[0].click();
+    } else {
+      videoContainer.replaceChildren(h('p', { style: 'color: white; text-align: center; padding-top: 20%;' }, 'Tidak ada server video tersedia.'));
+    }
 
-    const minus = h('button', { class: 'btn', type: 'button', disabled: ep <= 0, onclick: () => save({ episode: ep - 1, status: nextStatus }, 'Progres disimpan') }, '−1 Eps');
-    const plus = h('button', { class: 'btn primary', type: 'button', disabled: total != null && ep >= total, onclick: () => save({ episode: ep + 1, status: nextStatus }, 'Progres disimpan') }, '+1 Eps');
-    
-    const completeBtn = total && ep < total ? h('button', { class: 'btn', type: 'button', onclick: () => save({ episode: total, status: 'completed' }, 'Ditandai Selesai') }, 'Tandai Selesai') : null;
-
-    box.replaceChildren(
-      h('h3', {}, 'Tracker Tontonan'),
-      h('div', { class: 'row' }, sel),
-      total ? h('div', { class: 'progress-container' }, h('div', { class: 'progress-bar', style: `width: ${percent}%` })) : null,
-      h('div', { class: 'row' },
-        h('span', {}, 'Episode ke-'), epIn, h('span', {}, `/ ${total ?? '?'}`),
-        minus, plus, completeBtn
-      ),
-      h('p', { class: 'prog' }, rec ? `Status: ${WATCH_STATUSES[rec.status]} • Ditonton: ${ep} episode` : 'Pilih status atau tambah episode untuk mulai mencatat.')
+    // Navigasi Prev/Next
+    const nav = h('div', { class: 'pager' },
+      ep.hasPrevEpisode ? h('a', { href: `/watch/${ep.prevEpisode.episodeId}`, 'data-link': '', class: 'btn' }, '← Sebelumnya') : null,
+      h('a', { href: `/anime/${ep.animeId}`, 'data-link': '', class: 'btn primary' }, 'Daftar Episode'),
+      ep.hasNextEpisode ? h('a', { href: `/watch/${ep.nextEpisode.episodeId}`, 'data-link': '', class: 'btn' }, 'Selanjutnya →') : null
     );
-  };
-  render();
-  return box;
-}
 
-// --- HALAMAN DETAIL ---
-route('/anime/(\\d{1,7})', ({ params, signal }) => renderAnime(Number(params[0]), signal));
+    show(ep.title, 
+      videoContainer,
+      h('h1', { style: 'font-size: 1.5rem; margin-top: 1rem;' }, ep.title),
+      h('p', { class: 'meta' }, `Anime: ${ep.info?.credit || ''} • Durasi: ${ep.info?.duration || ''}`),
+      h('h3', { style: 'margin-top: 1.5rem;' }, 'Pilih Server'),
+      serverList,
+      nav
+    );
 
-async function renderAnime(id, signal) {
-  show('Memuat…', h('p', { class: 'lede' }, 'Memuat detail anime...'));
-
-  let a;
-  try {
-    a = (await api.animeFull(id, signal)).data;
-    if (!a || a.mal_id !== id) throw new api.ApiError('data', 'Data mismatch');
   } catch (e) {
-    if (e.kind === 'aborted') return;
-    if (e.kind === 'notfound') return notFound();
-    show('Gagal Memuat', errorState(e, () => renderAnime(id, signal)));
-    return;
+    show('Gagal Memuat Video', errorState(e, () => location.reload()));
   }
+});
 
-  const it = toItem(a);
-  const total = Number.isInteger(a.episodes) && a.episodes > 0 ? a.episodes : null;
-  const names = key => (Array.isArray(a[key]) ? a[key] : []).map(x => x?.name).filter(n => typeof n === 'string');
-  
-  const facts = [
-    ['Tipe', a.type], ['Episode', total ?? a.episodes], ['Status', a.status],
-    ['Tayang', a.aired?.string], ['Studio', names('studios').join(', ')],
-    ['Musim', a.season && a.year ? `${a.season} ${a.year}` : a.year],
-    ['Skor', a.score ? `${a.score.toFixed(2)} (${(a.scored_by ?? 0).toLocaleString('id-ID')} suara)` : null],
-    ['Durasi', a.duration], ['Rating', a.rating],
-  ].filter(([, v]) => v != null && v !== '');
-
-  const info = h('div', {},
-    h('h1', {}, it.title),
-    a.title_japanese ? h('p', { class: 'meta', lang: 'ja', style: 'margin-bottom: 1rem;' }, String(a.title_japanese)) : null,
-    h('ul', { class: 'tags' }, [...names('genres'), ...names('themes')].map(n => h('li', {}, n))),
-    h('dl', { class: 'facts' }, facts.flatMap(([k, v]) => [h('dt', {}, k), h('dd', {}, String(v))])),
-    h('h2', {}, 'Sinopsis'),
-    h('p', { class: 'syn' }, a.synopsis || 'Sinopsis belum tersedia dari MyAnimeList.'),
-    watchPanel({ ...it, total }));
-
-  const article = h('article', { class: 'detail' },
-    h('div', { class: 'side' }, poster(it.title, a.images?.webp?.large_image_url ?? it.image, true), favButton(it, 'inline')),
-    info);
-
-  show(it.title, article);
-
-  api.streaming(id, signal).then(list => {
-    const links = list.filter(s => s && typeof s.name === 'string').map(s => ({ name: s.name, href: safeLink(s.url) })).filter(l => l.href);
-    if (!links.length) return;
-    info.append(
-      h('h2', {}, 'Tonton Resmi'),
-      h('p', { class: 'meta', style: 'margin-bottom: 1rem;' }, 'Kakemono tidak memutar video. Tautan diarahkan ke layanan legal.'),
-      h('ul', { class: 'tags' }, links.map(l => h('li', {}, h('a', { href: l.href, target: '_blank', rel: 'noopener noreferrer' }, l.name)))));
-  }).catch(e => { if (e.kind !== 'aborted') console.warn('Streaming links unavailable'); });
-}
-
-// --- HALAMAN KOLEKSI ---
-function progressLine(w) {
-  return h('p', { class: 'meta', style: 'color: var(--teal); font-weight: 500;' }, `${WATCH_STATUSES[w.status]} • Eps ${w.episode}${w.total ? ` / ${w.total}` : ''}`);
-}
-
+// --- KOLEKSI ---
 function renderFavorites() {
   const favs = readFavorites();
   const watch = readWatch();
   show('Koleksi', h('h1', {}, 'Koleksi Saya'),
     h('h2', {}, 'Favorit'),
-    favs.length ? h('ul', { class: 'grid' }, favs.map(f => card(f))) : emptyState('Belum ada favorit. Tekan "Simpan" pada anime untuk menambahkannya.', browseLink()),
+    favs.length ? h('ul', { class: 'grid' }, favs.map(f => card(f))) : emptyState('Belum ada favorit.', browseLink()),
     h('h2', {}, 'Daftar Tontonan'),
-    watch.length ? h('ul', { class: 'grid' }, watch.map(w => card(w, progressLine(w)))) : emptyState('Belum ada daftar tontonan. Buka detail anime lalu atur progresnya.'));
+    watch.length ? h('ul', { class: 'grid' }, watch.map(w => card(w, h('p', { class: 'meta', style: 'color: var(--teal);' }, `${WATCH_STATUSES[w.status]} • Eps ${w.episode}${w.total ? ` / ${w.total}` : ''}`))))) : emptyState('Belum ada daftar tontonan.'));
 }
 route('/favorites', renderFavorites);
 
-// --- HALAMAN DEVELOPER ---
+// --- DEVELOPER ---
 function renderDeveloper() {
   show('Developer', h('section', { class: 'dev' },
-    h('img', { class: 'avatar', src: '/img/xs0ciety.png', width: 160, height: 160, alt: 'Foto Profil xs0cietyHUB', decoding: 'async', onerror: (e) => { e.target.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160"><rect width="160" height="160" fill="%231d2040"/><circle cx="80" cy="60" r="30" fill="%2331365c"/><path d="M40 140c0-22 18-40 40-40s40 18 40 40" fill="%2331365c"/></svg>'; } }),
+    h('img', { class: 'avatar', src: '/img/xs0ciety.png', width: 160, height: 160, alt: 'xs0cietyHUB', onerror: (e) => { e.target.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160"><rect width="160" height="160" fill="%231d2040"/></svg>'; } }),
     h('div', {},
       h('h1', {}, 'xs0cietyHUB'),
-      h('p', { class: 'lede', style: 'margin: 0 auto 1.5rem;' }, 'Developer independen di balik Kakemono. Punya saran, laporan bug, atau ingin bekerja sama? Hubungi saya lewat tautan di bawah.'),
-      h('ul', { class: 'social' }, SOCIALS.map(s =>
-        h('li', {},
-          h('a', { href: s.href, target: '_blank', rel: 'noopener noreferrer' },
-            icon(s.icon),
-            h('span', {}, s.label),
-            h('span', { class: 'handle' }, s.handle))))))));
+      h('p', { class: 'lede', style: 'margin-bottom: 1.5rem;' }, 'Developer independen di balik Kakemono. Punya saran atau laporan bug? Hubungi saya.'),
+      h('ul', { class: 'social' }, SOCIALS.map(s => h('li', {}, h('a', { href: s.href, target: '_blank', rel: 'noopener noreferrer' }, icon(s.icon), h('span', {}, s.label), h('span', { class: 'handle' }, s.handle))))))));
 }
 route('/developer', renderDeveloper);
 
 // --- 404 ---
 function notFound() {
-  show('Tidak Ditemukan', h('div', { class: 'state' },
-    h('p', { class: 'nf' }, '404'),
-    h('p', {}, 'Halaman yang kamu cari tidak ada atau sudah dipindahkan.'),
-    h('a', { class: 'btn primary', href: '/', 'data-link': '' }, 'Kembali ke Beranda')));
+  show('404', h('div', { class: 'state' }, h('p', { class: 'nf' }, '404'), h('p', {}, 'Halaman tidak ditemukan.'), h('a', { class: 'btn primary', href: '/', 'data-link': '' }, 'Kembali')));
 }
 onNotFound(notFound);
 
-// --- INISIALISASI TAB BAR ---
-document.getElementById('tabbar').replaceChildren(...TABS.map(t =>
-  h('a', { href: t.href, 'data-link': '' }, icon(t.icon, 24), h('span', {}, t.label))));
+// --- TABS ---
+document.getElementById('tabbar').replaceChildren(...TABS.map(t => h('a', { href: t.href, 'data-link': '' }, icon(t.icon), h('span', {}, t.label))));
 
 start();
