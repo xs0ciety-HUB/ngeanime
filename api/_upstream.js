@@ -8,7 +8,7 @@
  * and failures carries host, status and a 200-char body snippet per failed attempt for diagnosis.
  */
 
-const DEFAULT_BASE = 'https://wajik-anime-api.vercel.app';
+const DEFAULT_BASE = 'https://anime-api-red-pi.vercel.app';
 const TIMEOUT_MS = 12000;
 const RETRY_STATUS = new Set([403, 408, 425, 429, 500, 502, 503, 504]);
 const USER_AGENT =
