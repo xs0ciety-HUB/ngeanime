@@ -1,4 +1,3 @@
-// Minimal History API router. Every navigation gets a fresh AbortSignal; the previous one is aborted.
 const routes = [];
 let ctl = null;
 let fallback = () => {};

@@ -1,4 +1,4 @@
-const FALLBACK_IMG = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="225" height="318" viewBox="0 0 225 318"><rect width="225" height="318" fill="%231d2040"/><path d="M112.5 129c-11 0-20 9-20 20s9 20 20 20 20-9 20-20-9-20-20-20zm0 30c-5.5 0-10-4.5-10-10s4.5-10 10-10 10 4.5 10 10-4.5 10-10 10z" fill="%2331365c"/><text x="112.5" y="200" font-family="sans-serif" font-size="14" fill="%239d9bb8" text-anchor="middle">No Image</text></svg>';
+const FALLBACK = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="300" height="450" viewBox="0 0 300 450"><rect width="300" height="450" fill="%23161a2b"/><text x="150" y="225" font-family="sans-serif" font-size="16" fill="%239a98b0" text-anchor="middle">No Image</text></svg>';
 
 export function h(tag, attrs = {}, ...kids) {
   const el = document.createElement(tag);
@@ -15,28 +15,7 @@ export function h(tag, attrs = {}, ...kids) {
   return el;
 }
 
-export function safeImageUrl(url) {
-  try {
-    const u = new URL(url);
-    return u.protocol === 'https:' || u.protocol === 'http:' ? u.href : FALLBACK_IMG;
-  } catch { return FALLBACK_IMG; }
-}
-
-export function poster(title, url, eager = false) {
-  const img = h('img', { 
-    class: 'poster', width: 225, height: 318, alt: `Poster ${title}`, 
-    loading: eager ? 'eager' : 'lazy', decoding: 'async',
-    onerror: (e) => { e.target.src = FALLBACK_IMG; e.target.onerror = null; } 
-  });
-  img.src = url ? safeImageUrl(url) : FALLBACK_IMG;
+export function poster(url, alt = 'Poster') {
+  const img = h('img', { class: 'card-poster', src: url || FALLBACK, alt, loading: 'lazy', onerror: (e) => { e.target.src = FALLBACK; e.target.onerror = null; } });
   return img;
-}
-
-let toastTimer;
-export function toast(msg) {
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.classList.add('on');
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove('on'), 2500);
 }

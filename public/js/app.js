@@ -1,309 +1,217 @@
-import { h, poster, toast } from './dom.js';
+import { h, poster } from './dom.js';
 import * as api from './api.js';
-import {
-  readFavorites, isFavorite, toggleFavorite,
-  readWatch, getWatch, setWatch, removeWatch, WATCH_STATUSES,
-} from './store.js';
 import { route, onNotFound, start } from './router.js';
 
-const main = document.getElementById('main');
-const SVG_NS = 'http://www.w3.org/2000/svg';
+const app = document.getElementById('app');
 
-const ICON = {
-  home: ['M3 10.5L12 3l9 7.5', 'M5 9.5V21h14V9.5', 'M10 21v-6h4v6'],
-  search: ['M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14z', 'M20 20l-4.2-4.2'],
-  bookmark: ['M6 3h12v18l-6-4.5L6 21z'],
-  code: ['M8 8l-4 4 4 4', 'M16 8l4 4-4 4', 'M13.5 5l-3 14'],
-  instagram: ['M7 3h10a4 4 0 0 1 4 4v10a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V7a4 4 0 0 1 4-4z', 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z', 'M17.5 6.5h.01'],
-  telegram: ['M21 4L3 11l6 2.2L11.5 20l3.2-3.6 4.3 3.1z', 'M9 13.2L17 7'],
-  tiktok: ['M14 3v11.5a3.5 3.5 0 1 1-3.5-3.5', 'M14 3c.4 2.6 2.2 4.2 5 4.5'],
-  play: ['M5 3l14 9-14 9V3z'],
+// --- Ikon SVG ---
+const ICONS = {
+  home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>',
+  search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+  play: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>',
 };
 
+// --- Navigasi Bawah ---
 const TABS = [
-  { href: '/', label: 'Beranda', icon: 'home' },
-  { href: '/browse', label: 'Jelajah', icon: 'search' },
-  { href: '/favorites', label: 'Koleksi', icon: 'bookmark' },
-  { href: '/developer', label: 'Developer', icon: 'code' },
+  { path: '/', label: 'Beranda', icon: ICONS.home },
+  { path: '/search', label: 'Cari', icon: ICONS.search },
 ];
 
-const SOCIALS = [
-  { icon: 'tiktok', label: 'TikTok', handle: '@xprimesociety', href: 'https://www.tiktok.com/@xprimesociety' },
-  { icon: 'instagram', label: 'Instagram', handle: '@xs0ciety_hub', href: 'https://www.instagram.com/xs0ciety_hub/' },
-  { icon: 'telegram', label: 'Telegram', handle: 'xs0cietyHUB', href: 'https://t.me/xs0cietyHUB' },
-];
-
-function icon(name, size = 24) {
-  const svg = document.createElementNS(SVG_NS, 'svg');
-  svg.setAttribute('viewBox', '0 0 24 24');
-  svg.setAttribute('width', size); svg.setAttribute('height', size);
-  svg.setAttribute('fill', 'none'); svg.setAttribute('stroke', 'currentColor');
-  svg.setAttribute('stroke-width', '1.8'); svg.setAttribute('stroke-linecap', 'round'); svg.setAttribute('stroke-linejoin', 'round');
-  svg.setAttribute('aria-hidden', 'true');
-  for (const d of ICON[name] || []) {
-    const p = document.createElementNS(SVG_NS, 'path');
-    p.setAttribute('d', d); svg.append(p);
-  }
-  return svg;
+function updateNav() {
+  const nav = document.getElementById('bottom-nav');
+  nav.innerHTML = TABS.map(t => `
+    <a href="${t.path}" data-link class="${location.pathname === t.path ? 'active' : ''}">
+      ${t.icon} <span>${t.label}</span>
+    </a>
+  `).join('');
 }
 
-function show(title, ...nodes) {
-  document.title = title ? `${title} — Kakemono` : 'Kakemono — Nonton Anime';
-  main.replaceChildren(...nodes.flat().filter(Boolean));
-  document.querySelectorAll('#tabbar a').forEach(a => {
-    if (a.pathname === location.pathname) a.setAttribute('aria-current', 'page');
-    else a.removeAttribute('aria-current');
-  });
-  main.focus({ preventScroll: true });
-  scrollTo(0, 0);
+// --- Helper UI ---
+function showLoading() {
+  app.innerHTML = '<div class="grid">' + Array(6).fill('<div class="skeleton skeleton-poster"></div>').join('') + '</div>';
 }
 
-const MESSAGES = {
-  network: 'Koneksi terputus. Periksa internetmu lalu coba lagi.',
-  rate: 'Terlalu banyak permintaan. Tunggu sebentar.',
-  server: 'Server anime sedang bermasalah.',
-  data: 'Data tidak dapat dibaca.',
-};
-
-function errorState(err, retry) {
-  return h('div', { class: 'state', role: 'alert' },
-    h('p', {}, MESSAGES[err.kind] || 'Terjadi kesalahan sistem.'),
-    retry ? h('button', { class: 'btn primary', type: 'button', onclick: retry }, 'Coba Lagi') : null);
+function showError(msg) {
+  app.innerHTML = `<div class="state"><p>${msg}</p><button class="btn btn-primary" onclick="location.reload()">Coba Lagi</button></div>`;
 }
 
-const emptyState = (text, link) => h('div', { class: 'state' }, h('p', {}, text), link);
-const skeletons = n => h('ul', { class: 'grid', 'aria-hidden': 'true' }, Array.from({ length: n }, () => h('li', { class: 'sk' })));
-const browseLink = () => h('a', { class: 'btn primary', href: '/browse', 'data-link': '' }, 'Cari Anime');
-
-function favButton(item, cls = '') {
-  const saved = isFavorite(item.id);
-  const btn = h('button', { class: `fav ${cls}`.trim(), type: 'button', 'aria-pressed': String(saved) }, saved ? 'Tersimpan' : 'Simpan');
-  btn.addEventListener('click', () => {
-    const r = toggleFavorite(item);
-    const nowSaved = isFavorite(item.id);
-    btn.setAttribute('aria-pressed', String(nowSaved));
-    btn.textContent = nowSaved ? 'Tersimpan' : 'Simpan';
-    toast(!r.ok ? 'Gagal menyimpan' : nowSaved ? 'Ditambahkan ke favorit' : 'Dihapus dari favorit');
-    if (location.pathname === '/favorites' && !nowSaved) renderFavorites();
-  });
-  return btn;
-}
-
-// Mapping data dari Wajik API
-const toItem = (a) => ({
-  id: a.animeId || a.id,
-  title: a.title || 'Tanpa judul',
-  image: a.poster || null,
-  type: a.type || '',
-  year: a.year || null,
-  score: a.score || null,
-  episodes: a.episodes || null,
-});
-
-function card(item, extra = null) {
-  if (!item) return null;
-  const sub = [item.type, item.year].filter(Boolean).join(' • ');
-  return h('li', { class: 'card' },
-    h('a', { href: `/anime/${item.id}`, 'data-link': '' },
-      poster(item.title, item.image),
-      h('h3', {}, item.title),
-      h('div', { class: 'meta' }, sub, item.score ? [' • ', h('span', { class: 'score' }, item.score)] : null)),
-    extra,
-    favButton(item));
-}
-
-// --- BERANDA ---
-route('/', async ({ signal }) => {
-  const ongoingBody = h('div', {}, skeletons(6));
-  const completedBody = h('div', {}, skeletons(6));
-  
-  show('', h('div', { class: 'hero' },
-    h('div', {},
-      h('h1', {}, 'Nonton anime subtitle Indonesia.'),
-      h('p', { class: 'lede' }, 'Streaming anime tanpa ribet. Catat progres tontonanmu langsung di browser.'),
-      h('a', { class: 'btn primary', href: '/browse', 'data-link': '' }, 'Mulai Jelajah')),
-    h('div', {})),
-    h('section', {}, h('h2', {}, 'Sedang Tayang'), ongoingBody),
-    h('section', {}, h('h2', {}, 'Selesai Tayang'), completedBody));
+// --- Halaman Beranda ---
+route('/', async () => {
+  updateNav();
+  app.innerHTML = `<h1>Temukan Anime</h1><p class="lede">Streaming subtitle Indonesia langsung dari browser.</p><div id="home-content"></div>`;
+  const container = document.getElementById('home-content');
+  container.innerHTML = '<div class="grid">' + Array(6).fill('<div class="skeleton skeleton-poster"></div>').join('') + '</div>';
 
   try {
-    const res = await api.getHome();
-    const ongoing = (res.data?.ongoing?.animeList || []).map(toItem);
-    const completed = (res.data?.completed?.animeList || []).map(toItem);
-    
-    ongoingBody.replaceChildren(ongoing.length ? h('ul', { class: 'grid' }, ongoing.map(i => card(i))) : emptyState('Belum ada data.'));
-    completedBody.replaceChildren(completed.length ? h('ul', { class: 'grid' }, completed.map(i => card(i))) : emptyState('Belum ada data.'));
+    const data = await api.getHome();
+    const renderList = (list) => list.map(a => `
+      <li class="card">
+        <a href="/anime/${a.animeId}" data-link>
+          ${poster(a.poster, a.title).outerHTML}
+          <div class="card-title">${a.title}</div>
+          <div class="card-meta">${a.episodes} Eps • ${a.releaseDay || ''}</div>
+        </a>
+      </li>
+    `).join('');
+
+    container.innerHTML = `
+      <h2>Sedang Tayang</h2>
+      <ul class="grid">${renderList(data.ongoing)}</ul>
+      <h2>Selesai</h2>
+      <ul class="grid">${renderList(data.completed)}</ul>
+    `;
   } catch (e) {
-    ongoingBody.replaceChildren(errorState(e, () => location.reload()));
-    completedBody.replaceChildren(errorState(e, () => location.reload()));
+    showError('Gagal memuat data anime. Periksa koneksi atau coba lagi nanti.');
   }
 });
 
-// --- JELAJAH ---
-route('/browse', ({ query }) => {
+// --- Halaman Pencarian ---
+route('/search', async ({ query }) => {
+  updateNav();
   const q = query.get('q') || '';
-  const results = h('div', {});
-  const input = h('input', { type: 'search', placeholder: 'Cari judul anime...', value: q });
-  
-  const form = h('form', { class: 'bar', onsubmit: e => { e.preventDefault(); history.replaceState(null, '', `/browse?q=${encodeURIComponent(input.value)}`); load(input.value); } }, input);
-  
-  async function load(query) {
-    results.replaceChildren(skeletons(8));
+  app.innerHTML = `
+    <h1>Cari Anime</h1>
+    <form id="search-form" class="hero" style="margin-bottom:1rem; display:flex; gap:0.5rem;">
+      <input type="search" name="q" value="${q}" placeholder="Ketik judul anime..." style="flex:1; padding:0.6rem; border-radius:8px; border:1px solid var(--border); background:var(--surface); color:var(--text);">
+      <button type="submit" class="btn btn-primary">Cari</button>
+    </form>
+    <div id="search-results"></div>
+  `;
+
+  const form = document.getElementById('search-form');
+  const results = document.getElementById('search-results');
+
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const newQ = form.q.value.trim();
+    if (newQ) history.pushState(null, '', `/search?q=${encodeURIComponent(newQ)}`);
+    runSearch(newQ);
+  });
+
+  async function runSearch(keyword) {
+    if (!keyword) {
+      results.innerHTML = '<p class="state">Masukkan kata kunci pencarian.</p>';
+      return;
+    }
+    results.innerHTML = '<div class="grid">' + Array(6).fill('<div class="skeleton skeleton-poster"></div>').join('') + '</div>';
     try {
-      const res = await api.searchAnime(query);
-      const items = (res.data?.animeList || []).map(toItem);
-      results.replaceChildren(items.length ? h('ul', { class: 'grid' }, items.map(i => card(i))) : emptyState('Anime tidak ditemukan.'));
-    } catch (e) {
-      results.replaceChildren(errorState(e, () => load(query)));
-    }
-  }
-
-  show('Jelajah', h('h1', {}, 'Jelajah Anime'), form, results);
-  if (q) load(q); else results.replaceChildren(emptyState('Ketik judul untuk mencari anime.'));
-});
-
-// --- DETAIL ANIME ---
-route('/anime/([^/]+)', async ({ params, signal }) => {
-  show('Memuat...', h('p', { class: 'lede' }, 'Memuat detail anime...'));
-  try {
-    const res = await api.getAnimeDetail(params[0]);
-    const details = res.data.details;
-    const it = toItem(details);
-    const episodes = details.episodeList || [];
-    
-    const info = h('div', {},
-      h('h1', {}, it.title),
-      h('ul', { class: 'tags' }, (details.genreList || []).map(g => h('li', {}, g.title))),
-      h('dl', { class: 'facts' },
-        h('dt', {}, 'Tipe'), h('dd', {}, details.type || '-'),
-        h('dt', {}, 'Episode'), h('dd', {}, details.episodes || '-'),
-        h('dt', {}, 'Status'), h('dd', {}, details.status || '-'),
-        h('dt', {}, 'Skor'), h('dd', {}, details.score || '-'),
-        h('dt', {}, 'Studio'), h('dd', {}, details.studios || '-')),
-      h('h2', {}, 'Sinopsis'),
-      h('p', { class: 'syn' }, details.synopsis || 'Sinopsis belum tersedia.'),
-      h('h2', {}, 'Daftar Episode'),
-      h('div', { class: 'episode-list' }, episodes.map(ep => 
-        h('a', { href: `/watch/${ep.episodeId}`, 'data-link': '' }, ep.title)
-      ))
-    );
-
-    show(it.title, h('article', { class: 'detail' },
-      h('div', { class: 'side' }, poster(it.title, details.poster, true), favButton(it, 'inline')),
-      info));
-  } catch (e) {
-    show('Gagal', errorState(e, () => location.reload()));
-  }
-});
-
-// --- WATCH PAGE (Pemutar Video) ---
-route('/watch/([^/]+)', async ({ params, signal }) => {
-  show('Memuat Pemutar...', h('p', { class: 'lede' }, 'Menyiapkan video...'));
-  try {
-    const res = await api.getEpisodeDetail(params[0]);
-    const ep = res.data.details;
-    
-    const videoContainer = h('div', { class: 'video-container' });
-    const serverList = h('div', { class: 'server-list' });
-
-    // Fungsi untuk memuat video dari server
-    const loadServer = async (serverId, btn) => {
-      serverList.querySelectorAll('button').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      videoContainer.replaceChildren(h('p', { style: 'color: white; text-align: center; padding-top: 20%;' }, 'Memuat video...'));
-      
-      try {
-        const serverRes = await api.getServerDetail(serverId);
-        const url = serverRes.data.details.url;
-        
-        // Jika URL berupa iframe (mengandung <iframe), kita ekstrak src-nya
-        if (url.includes('<iframe')) {
-          const match = url.match(/src="([^"]+)"/);
-          const src = match ? match[1] : url;
-          videoContainer.replaceChildren(h('iframe', { src, allowfullscreen: true, frameborder: '0' }));
-        } else {
-          // Jika URL langsung (mp4/m3u8), gunakan tag video
-          videoContainer.replaceChildren(h('video', { src: url, controls: true, autoplay: true, playsinline: true }));
-        }
-      } catch (e) {
-        videoContainer.replaceChildren(h('p', { style: 'color: red; text-align: center; padding-top: 20%;' }, 'Gagal memuat server ini. Coba server lain.'));
+      const res = await api.searchAnime(keyword);
+      const list = res.data?.animeList || [];
+      if (list.length === 0) {
+        results.innerHTML = '<p class="state">Anime tidak ditemukan.</p>';
+        return;
       }
-    };
-
-    // Render daftar server
-    if (ep.server && ep.server.qualityList) {
-      ep.server.qualityList.forEach(quality => {
-        quality.serverList.forEach(server => {
-          const btn = h('button', { type: 'button' }, server.title);
-          btn.addEventListener('click', () => loadServer(server.serverId, btn));
-          serverList.append(btn);
-        });
-      });
+      results.innerHTML = `<ul class="grid">${list.map(a => `
+        <li class="card">
+          <a href="/anime/${a.animeId}" data-link>
+            ${poster(a.poster, a.title).outerHTML}
+            <div class="card-title">${a.title}</div>
+            <div class="card-meta">${a.episodes || ''}</div>
+          </a>
+        </li>
+      `).join('')}</ul>`;
+    } catch (e) {
+      showError('Pencarian gagal. Coba lagi.');
     }
-
-    // Muat default streaming URL jika ada
-    if (ep.defaultStreamingUrl) {
-      const match = ep.defaultStreamingUrl.match(/src="([^"]+)"/);
-      const src = match ? match[1] : ep.defaultStreamingUrl;
-      videoContainer.replaceChildren(h('iframe', { src, allowfullscreen: true, frameborder: '0' }));
-    } else if (serverList.children.length > 0) {
-      // Jika tidak ada default, klik server pertama
-      serverList.children[0].click();
-    } else {
-      videoContainer.replaceChildren(h('p', { style: 'color: white; text-align: center; padding-top: 20%;' }, 'Tidak ada server video tersedia.'));
-    }
-
-    // Navigasi Prev/Next
-    const nav = h('div', { class: 'pager' },
-      ep.hasPrevEpisode ? h('a', { href: `/watch/${ep.prevEpisode.episodeId}`, 'data-link': '', class: 'btn' }, '← Sebelumnya') : null,
-      h('a', { href: `/anime/${ep.animeId}`, 'data-link': '', class: 'btn primary' }, 'Daftar Episode'),
-      ep.hasNextEpisode ? h('a', { href: `/watch/${ep.nextEpisode.episodeId}`, 'data-link': '', class: 'btn' }, 'Selanjutnya →') : null
-    );
-
-    show(ep.title, 
-      videoContainer,
-      h('h1', { style: 'font-size: 1.5rem; margin-top: 1rem;' }, ep.title),
-      h('p', { class: 'meta' }, `Anime: ${ep.info?.credit || ''} • Durasi: ${ep.info?.duration || ''}`),
-      h('h3', { style: 'margin-top: 1.5rem;' }, 'Pilih Server'),
-      serverList,
-      nav
-    );
-
-  } catch (e) {
-    show('Gagal Memuat Video', errorState(e, () => location.reload()));
   }
+
+  if (q) runSearch(q);
+  else results.innerHTML = '<p class="state">Masukkan judul anime yang ingin dicari.</p>';
 });
 
-// --- KOLEKSI ---
-function renderFavorites() {
-  const favs = readFavorites();
-  const watch = readWatch();
-  show('Koleksi', h('h1', {}, 'Koleksi Saya'),
-    h('h2', {}, 'Favorit'),
-    favs.length ? h('ul', { class: 'grid' }, favs.map(f => card(f))) : emptyState('Belum ada favorit.', browseLink()),
-    h('h2', {}, 'Daftar Tontonan'),
-    watch.length ? h('ul', { class: 'grid' }, watch.map(w => card(w, h('p', { class: 'meta', style: 'color: var(--teal);' }, `${WATCH_STATUSES[w.status]} • Eps ${w.episode}${w.total ? ` / ${w.total}` : ''}`))))) : emptyState('Belum ada daftar tontonan.'));
-}
-route('/favorites', renderFavorites);
+// --- Halaman Detail Anime & Streaming ---
+route('/anime/([^/]+)', async ({ params }) => {
+  updateNav();
+  const animeId = params[0];
+  app.innerHTML = `<div class="state"><p>Memuat detail anime...</p></div>`;
 
-// --- DEVELOPER ---
-function renderDeveloper() {
-  show('Developer', h('section', { class: 'dev' },
-    h('img', { class: 'avatar', src: '/img/xs0ciety.png', width: 160, height: 160, alt: 'xs0cietyHUB', onerror: (e) => { e.target.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160"><rect width="160" height="160" fill="%231d2040"/></svg>'; } }),
-    h('div', {},
-      h('h1', {}, 'xs0cietyHUB'),
-      h('p', { class: 'lede', style: 'margin-bottom: 1.5rem;' }, 'Developer independen di balik Kakemono. Punya saran atau laporan bug? Hubungi saya.'),
-      h('ul', { class: 'social' }, SOCIALS.map(s => h('li', {}, h('a', { href: s.href, target: '_blank', rel: 'noopener noreferrer' }, icon(s.icon), h('span', {}, s.label), h('span', { class: 'handle' }, s.handle))))))));
-}
-route('/developer', renderDeveloper);
+  try {
+    const res = await api.getAnimeDetail(animeId);
+    const anime = res.data;
+    if (!anime) throw new Error('Data anime kosong');
+
+    // Render UI Detail
+    app.innerHTML = `
+      <article class="anime-detail">
+        <div>
+          ${poster(anime.poster, anime.title).outerHTML.replace('card-poster', 'anime-poster')}
+        </div>
+        <div class="anime-info">
+          <h1>${anime.title}</h1>
+          <ul class="anime-tags">${(anime.genres || []).map(g => `<li>${g}</li>`).join('')}</ul>
+          <dl class="anime-facts">
+            <dt>Status</dt><dd>${anime.status || '-'}</dd>
+            <dt>Episode</dt><dd>${anime.totalEpisodes || '?'}</dd>
+            <dt>Skor</dt><dd>${anime.score || '-'}</dd>
+          </dl>
+          <p class="anime-synopsis">${anime.synopsis || 'Sinopsis belum tersedia.'}</p>
+        </div>
+      </article>
+      <section class="player-section" id="player-section">
+        <h2>Nonton Anime</h2>
+        <div class="video-wrapper" id="video-wrapper">
+          <div class="state"><p>Pilih episode di bawah untuk mulai menonton.</p></div>
+        </div>
+        <div class="episode-list" id="episode-list"></div>
+      </section>
+    `;
+
+    const epList = document.getElementById('episode-list');
+    const videoWrapper = document.getElementById('video-wrapper');
+
+    if (anime.episodes && anime.episodes.length > 0) {
+      epList.innerHTML = anime.episodes.map(ep => `
+        <button class="episode-btn" data-ep-id="${ep.episodeId}">${ep.title || `Episode ${ep.episodeNumber}`}</button>
+      `).join('');
+
+      epList.addEventListener('click', async (e) => {
+        const btn = e.target.closest('.episode-btn');
+        if (!btn) return;
+
+        // Tandai aktif
+        document.querySelectorAll('.episode-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+
+        const epId = btn.dataset.epId;
+        videoWrapper.innerHTML = `<div class="state"><p>Memuat video...</p></div>`;
+
+        try {
+          const streamRes = await api.getEpisodeStream(epId);
+          const streamData = streamRes.data;
+          // Cari link streaming utama (prioritas: 720p, lalu 480p, lalu default)
+          let videoUrl = null;
+          if (streamData.streams && streamData.streams.length > 0) {
+            // Coba cari kualitas 720p atau 480p
+            const preferred = streamData.streams.find(s => s.quality === '720p') 
+                           || streamData.streams.find(s => s.quality === '480p') 
+                           || streamData.streams[0];
+            videoUrl = preferred.url;
+          } else if (streamData.streamUrl) {
+            videoUrl = streamData.streamUrl;
+          }
+
+          if (videoUrl) {
+            videoWrapper.innerHTML = `<video controls autoplay src="${videoUrl}"></video>`;
+          } else {
+            videoWrapper.innerHTML = `<div class="state"><p>Link video tidak ditemukan untuk episode ini.</p></div>`;
+          }
+        } catch (err) {
+          videoWrapper.innerHTML = `<div class="state"><p>Gagal memuat video. Coba episode lain.</p></div>`;
+        }
+      });
+    } else {
+      epList.innerHTML = '<p class="state">Belum ada episode tersedia.</p>';
+    }
+  } catch (e) {
+    app.innerHTML = `<div class="state"><p>Gagal memuat detail anime. Mungkin ID tidak valid.</p><a href="/" data-link class="btn btn-primary">Kembali ke Beranda</a></div>`;
+  }
+});
 
 // --- 404 ---
-function notFound() {
-  show('404', h('div', { class: 'state' }, h('p', { class: 'nf' }, '404'), h('p', {}, 'Halaman tidak ditemukan.'), h('a', { class: 'btn primary', href: '/', 'data-link': '' }, 'Kembali')));
-}
-onNotFound(notFound);
+onNotFound(() => {
+  updateNav();
+  app.innerHTML = `<div class="state"><h1 style="font-size:4rem; color:var(--pink);">404</h1><p>Halaman tidak ditemukan.</p><a href="/" data-link class="btn btn-primary">Ke Beranda</a></div>`;
+});
 
-// --- TABS ---
-document.getElementById('tabbar').replaceChildren(...TABS.map(t => h('a', { href: t.href, 'data-link': '' }, icon(t.icon), h('span', {}, t.label))));
-
+// --- Inisialisasi ---
 start();
