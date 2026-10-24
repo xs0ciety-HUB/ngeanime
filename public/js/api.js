@@ -1,8 +1,13 @@
-// KITA GUNAKAN PROXY PUBLIK (ALLORIGINS) UNTUK BYPASS CLOUDFLARE
-const PROXY_URL = 'https://api.allorigins.win/raw?url=';
+// DAFTAR PROXY PUBLIK UNTUK BYPASS CLOUDFLARE (FALLBACK)
+const PROXIES = [
+  (url) => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
+  (url) => `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(url)}`,
+  (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`
+];
+
 const BASE_URL = 'https://wajik-anime-api.vercel.app/otakudesu';
-const DEFAULT_TIMEOUT = 15000;
-const CACHE_TTL = 5 * 60 * 1000;
+const DEFAULT_TIMEOUT = 25000; // Dinaikkan jadi 25 detik karena API lambat
+const CACHE_TTL = 10 * 60 * 1000; // Cache 10 menit
 const MAX_QUERY_LEN = 60;
 const cache = new Map();
 
@@ -17,24 +22,38 @@ function withTimeout(signal, timeout) {
 }
 
 async function fetchJson(path, { timeout = DEFAULT_TIMEOUT, signal } = {}) {
-  const { signal: s, cleanup } = withTimeout(signal, timeout);
-  try {
-    // Encode URL asli sebelum dimasukkan ke proxy
-    const targetUrl = `${BASE_URL}${path}`;
-    const proxyUrl = `${PROXY_URL}${encodeURIComponent(targetUrl)}`;
+  const targetUrl = `${BASE_URL}${path}`;
+  let lastError = null;
 
-    const res = await fetch(proxyUrl, {
-      signal: s,
-      headers: { Accept: 'application/json' },
-      credentials: 'omit',
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
-    const ct = (res.headers.get('content-type') || '').toLowerCase();
-    if (!ct.includes('application/json')) throw new Error('Respons bukan JSON');
-    return await res.json();
-  } finally {
-    cleanup();
+  // Coba satu per satu proxy yang tersedia
+  for (const proxy of PROXIES) {
+    const { signal: s, cleanup } = withTimeout(signal, timeout);
+    try {
+      const res = await fetch(proxy(targetUrl), {
+        signal: s,
+        headers: { Accept: 'application/json' },
+        credentials: 'omit',
+      });
+      
+      if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+      const ct = (res.headers.get('content-type') || '').toLowerCase();
+      if (!ct.includes('application/json')) throw new Error('Respons bukan JSON');
+      
+      const data = await res.json();
+      cleanup();
+      return data; // Berhasil, keluar dari loop
+    } catch (err) {
+      cleanup();
+      lastError = err;
+      // Jika error karena user membatalkan request, langsung lempar error
+      if (err.name === 'AbortError') throw err;
+      // Jika bukan, lanjut coba proxy berikutnya
+      console.warn(`Proxy gagal, mencoba proxy berikutnya... (${err.message})`);
+    }
   }
+
+  // Jika semua proxy gagal
+  throw lastError || new Error('Semua proxy gagal menghubungi API');
 }
 
 function getCached(key) {
@@ -122,7 +141,6 @@ export async function searchAnime(query, { signal } = {}) {
   const cached = getCached(key);
   if (cached) return cached;
   
-  // Perhatikan path-nya sekarang tidak perlu '/otakudesu' lagi karena sudah ada di BASE_URL
   const json = await fetchJson(`/search?q=${encodeURIComponent(q)}`, { signal });
   if (json.statusCode !== 200 || !json.data) {
     throw new Error(json.message || 'Pencarian gagal');
@@ -139,6 +157,7 @@ export async function getHome({ signal } = {}) {
   const key = 'home';
   const cached = getCached(key);
   if (cached) return cached;
+  
   const json = await fetchJson('/home', { signal });
   if (json.statusCode !== 200 || !json.data) {
     throw new Error(json.message || 'Beranda tidak tersedia');
@@ -157,6 +176,7 @@ export async function getAnimeDetail(animeId, { signal } = {}) {
   const key = `anime:${id}`;
   const cached = getCached(key);
   if (cached) return cached;
+  
   const json = await fetchJson(`/anime/${encodeURIComponent(id)}`, { signal });
   if (json.statusCode !== 200 || !json.data) {
     throw new Error(json.message || 'Detail anime tidak tersedia');
@@ -191,6 +211,7 @@ export async function getAnimeDetail(animeId, { signal } = {}) {
 export async function getEpisode(episodeId, { signal } = {}) {
   const id = sanitizeText(episodeId, 200);
   if (!id) throw new Error('ID episode tidak valid');
+  
   const json = await fetchJson(`/episode/${encodeURIComponent(id)}`, { signal });
   if (json.statusCode !== 200 || !json.data) {
     throw new Error(json.message || 'Episode tidak tersedia');
