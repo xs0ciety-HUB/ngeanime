@@ -10,15 +10,19 @@
  * Guards : https only, no credentials/ports, no IP literals or internal hostnames,
  *          max 3 redirects each re-validated, 6 MB cap, raster formats only (magic-byte sniffed,
  *          so SVG/HTML can never be served from this origin).
- * Env    : IMG_HOST_ALLOW="cdn.example.com,example.org" restricts hosts to those suffixes (optional).
+ * Env    : IMG_HOST_ALLOW="cdn.example.com,example.org" replaces the default host allowlist (suffix match).
+ *          Without it only the known poster CDNs below are fetched, so this is not an open image proxy.
  */
+
+const { guard } = require('./_guard.js');
 
 const MAX_BYTES = 6 * 1024 * 1024;
 const MAX_REDIRECTS = 3;
 const TIMEOUT_MS = 12000;
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
-const ALLOW = (process.env.IMG_HOST_ALLOW || '')
+const DEFAULT_ALLOW = 'wp.com,oploverz.am,otakudesu.cloud,otakudesu.best,otakudesu.cam,otakudesu.lol,otakudesu.blog,myanimelist.net';
+const ALLOW = (process.env.IMG_HOST_ALLOW || DEFAULT_ALLOW)
   .split(',')
   .map((h) => h.trim().toLowerCase())
   .filter(Boolean);
@@ -38,7 +42,10 @@ function parseTarget(raw) {
   const host = url.hostname.toLowerCase();
   if (!host.includes('.') || host.includes(':') || /^\d+(\.\d+){3}$/.test(host)) return null;
   if (/(^|\.)(localhost|local|internal|localdomain|home|lan|corp)$/.test(host)) return null;
-  if (ALLOW.length && !ALLOW.some((suffix) => host === suffix || host.endsWith(`.${suffix}`))) return null;
+  if (ALLOW.length && !ALLOW.some((suffix) => host === suffix || host.endsWith(`.${suffix}`))) {
+    console.warn('[img] host not in allowlist (set IMG_HOST_ALLOW to add it):', host);
+    return null;
+  }
   return url;
 }
 
@@ -104,6 +111,8 @@ module.exports = async function handler(req, res) {
     res.setHeader('Allow', 'GET, HEAD');
     return fail(res, 405, 'Method not allowed');
   }
+
+  if (!guard(req, res, { bucket: 'img', limit: 600 })) return;
 
   const raw = req.query && req.query.u ? String(req.query.u) : new URL(req.url || '/', 'http://localhost').searchParams.get('u');
   const target = parseTarget(raw);

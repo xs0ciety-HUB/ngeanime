@@ -3,12 +3,17 @@
 /**
  * Shared upstream client. Files prefixed with "_" are not exposed as Vercel functions.
  *
- * ANIME_API_BASE accepts one or more base URLs separated by commas; they are tried in order.
- * Returns { response, failures }: response is null when every base failed (403/429/5xx/timeout),
- * and failures carries host, status and a 200-char body snippet per failed attempt for diagnosis.
+ * Env:
+ *   ANIME_API_BASE         required. One or more https base URLs, comma separated, tried in order.
+ *                          Deliberately has no default: a URL in source code leaks with the repository.
+ *   ANIME_SOURCE           scraper route on the upstream API, default "oploverz".
+ *   UPSTREAM_BYPASS_SECRET optional. Sent as x-vercel-protection-bypass so the upstream project can sit behind
+ *                          Vercel Deployment Protection and refuse everyone except this app.
+ *
+ * fetchWithFallback returns { response, failures }; response is null when every base failed
+ * (403/429/5xx/timeout). failures is for server logs only and must never be returned to clients.
  */
 
-const DEFAULT_BASE = 'https://anime-api-red-pi.vercel.app';
 const TIMEOUT_MS = 12000;
 const RETRY_STATUS = new Set([403, 408, 425, 429, 500, 502, 503, 504]);
 const USER_AGENT =
@@ -17,7 +22,7 @@ const USER_AGENT =
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function bases() {
-  return (process.env.ANIME_API_BASE || DEFAULT_BASE)
+  return (process.env.ANIME_API_BASE || '')
     .split(',')
     .map((b) => b.trim().replace(/\/+$/, ''))
     .filter((b) => /^https:\/\//i.test(b));
@@ -28,19 +33,25 @@ function source() {
   return (process.env.ANIME_SOURCE || 'oploverz').toLowerCase().replace(/[^a-z0-9-]/g, '') || 'oploverz';
 }
 
+/** Short human-readable reason from an upstream error body (JSON message/statusMessage, or stripped text). */
 async function snippet(response) {
   try {
-    return (await response.text()).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
+    const text = await response.text();
+    try {
+      const json = JSON.parse(text);
+      return String(json.message || json.statusMessage || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+    } catch {
+      return text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
+    }
   } catch {
     return '';
   }
 }
 
 async function request(url) {
-  return fetch(url, {
-    headers: { 'User-Agent': USER_AGENT, Accept: 'application/json, text/plain, */*', 'Accept-Language': 'id,en;q=0.8' },
-    signal: AbortSignal.timeout(TIMEOUT_MS),
-  });
+  const headers = { 'User-Agent': USER_AGENT, Accept: 'application/json, text/plain, */*', 'Accept-Language': 'id,en;q=0.8' };
+  if (process.env.UPSTREAM_BYPASS_SECRET) headers['x-vercel-protection-bypass'] = process.env.UPSTREAM_BYPASS_SECRET;
+  return fetch(url, { headers, signal: AbortSignal.timeout(TIMEOUT_MS) });
 }
 
 async function fetchWithFallback(suffix) {
