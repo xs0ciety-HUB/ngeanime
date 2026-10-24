@@ -1,38 +1,35 @@
-const BASE_URL = 'https://wajik-anime-api.vercel.app/otakudesu';
-const PROXIES = [
-  (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-  (url) => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
-  (url) => `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(url)}`
-];
-const DEFAULT_TIMEOUT = 25000;
+// Menggunakan Proxy Internal Vercel (Serverless Function)
+const BASE_URL = '/api/anime?path=';
+const DEFAULT_TIMEOUT = 15000;
 const CACHE_TTL = 10 * 60 * 1000;
 const cache = new Map();
 
-async function fetchJson(path, { signal } = {}) {
-  const targetUrl = `${BASE_URL}${path}`;
-  let lastError = null;
+async function fetchJson(endpoint, { signal } = {}) {
+  // Gabungkan endpoint dengan proxy internal
+  const targetUrl = `${BASE_URL}${encodeURIComponent(endpoint)}`;
+  
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new DOMException('Timeout', 'TimeoutError')), DEFAULT_TIMEOUT);
+  const combinedSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
 
-  for (const proxy of PROXIES) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT);
-    const combinedSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
-
-    try {
-      const res = await fetch(proxy(targetUrl), { signal: combinedSignal, headers: { Accept: 'application/json' } });
-      clearTimeout(timer);
-      
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const ct = (res.headers.get('content-type') || '').toLowerCase();
-      if (!ct.includes('application/json')) throw new Error('Bukan JSON');
-      
-      return await res.json();
-    } catch (err) {
-      clearTimeout(timer);
-      lastError = err;
-      if (err.name === 'AbortError') throw err;
+  try {
+    const res = await fetch(targetUrl, {
+      signal: combinedSignal,
+      headers: { 'Accept': 'application/json' }
+    });
+    clearTimeout(timer);
+    
+    if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+    const data = await res.json();
+    
+    if (data.statusCode !== 200 && data.statusCode !== undefined) {
+      throw new Error(data.message || 'API Error');
     }
+    return data;
+  } catch (err) {
+    clearTimeout(timer);
+    throw err;
   }
-  throw lastError || new Error('Semua server proxy sedang sibuk / down');
 }
 
 function getCached(key) {
@@ -62,7 +59,7 @@ function normList(list) { return Array.isArray(list) ? list.map(normAnime).filte
 export async function getHome({ signal } = {}) {
   if (getCached('home')) return getCached('home');
   const json = await fetchJson('/home', { signal });
-  if (json.statusCode !== 200 || !json.data) throw new Error('Beranda tidak tersedia');
+  if (!json.data) throw new Error('Beranda tidak tersedia');
   const res = { ongoing: normList(json.data.ongoing), complete: normList(json.data.complete) };
   setCached('home', res);
   return res;
@@ -73,7 +70,7 @@ export async function searchAnime(q, { signal } = {}) {
   if (!q) return { animeList: [] };
   if (getCached(`s:${q}`)) return getCached(`s:${q}`);
   const json = await fetchJson(`/search?q=${encodeURIComponent(q)}`, { signal });
-  if (json.statusCode !== 200 || !json.data) throw new Error('Gagal mencari');
+  if (!json.data) throw new Error('Gagal mencari');
   const res = { animeList: normList(json.data.animeList) };
   setCached(`s:${q}`, res);
   return res;
@@ -82,7 +79,7 @@ export async function searchAnime(q, { signal } = {}) {
 export async function getAnimeDetail(id, { signal } = {}) {
   if (getCached(`a:${id}`)) return getCached(`a:${id}`);
   const json = await fetchJson(`/anime/${encodeURIComponent(id)}`, { signal });
-  if (json.statusCode !== 200 || !json.data) throw new Error('Detail tidak tersedia');
+  if (!json.data) throw new Error('Detail tidak tersedia');
   const d = json.data;
   const res = {
     title: sanitizeText(d.title, 200),
@@ -97,7 +94,7 @@ export async function getAnimeDetail(id, { signal } = {}) {
 
 export async function getEpisode(id, { signal } = {}) {
   const json = await fetchJson(`/episode/${encodeURIComponent(id)}`, { signal });
-  if (json.statusCode !== 200 || !json.data) throw new Error('Episode tidak tersedia');
+  if (!json.data) throw new Error('Episode tidak tersedia');
   const d = json.data;
   return {
     title: sanitizeText(d.title, 200),
@@ -111,6 +108,6 @@ export async function getEpisode(id, { signal } = {}) {
 
 export async function getServerUrl(serverId, { signal } = {}) {
   const json = await fetchJson(`/server/${encodeURIComponent(serverId)}`, { signal });
-  if (json.statusCode !== 200 || !json.data || !json.data.url) throw new Error('Server tidak tersedia');
+  if (!json.data || !json.data.url) throw new Error('Server tidak tersedia');
   return safeHttpsUrl(json.data.url);
 }
