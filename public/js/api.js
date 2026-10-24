@@ -1,5 +1,5 @@
 // GANTI: Gunakan proxy internal, bukan langsung ke wajik-anime-api
-const BASE_URL = '/api/anime';
+const BASE_URL = '/api/otakudesu';
 const DEFAULT_TIMEOUT = 15000;
 const CACHE_TTL = 5 * 60 * 1000;
 const MAX_QUERY_LEN = 60;
